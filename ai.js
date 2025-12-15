@@ -30,23 +30,45 @@ import {
 // ---------------------------------------------------------------------------
 // Proxy + Gemini call - INTEGRATED: Your proxy function
 // ---------------------------------------------------------------------------
-export async function callGeminiProxy(payload) {
+// ---------------------------------------------------------------------------
+// Proxy + Gemini call — STREAMING VERSION (same function name)
+// ---------------------------------------------------------------------------
+export async function callGeminiProxy(payload, onChunk) {
   const response = await fetch(GEMINI_PROXY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
+  if (!response.ok || !response.body) {
     const error = await response.text();
     throw new Error(`Gemini proxy error: ${error || response.statusText}`);
   }
 
-  const data = await response.json();
-  return data.text || "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  let fullText = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    fullText += chunk;
+
+    if (typeof onChunk === "function") {
+      onChunk(chunk, fullText);
+    }
+  }
+
+  return fullText;
 }
 
-export async function callGeminiAPI(userPrompt, history = [], systemPrompt = "") {
+// ---------------------------------------------------------------------------
+// Gemini API call — STREAMING-AWARE (same function name)
+// ---------------------------------------------------------------------------
+export async function callGeminiAPI(userPrompt, history = [], systemPrompt = "", onChunk) {
   const formattedHistory = history.map((msg) => ({
     role: msg.isUser ? "user" : "model",
     parts: [{ text: msg.text }],
@@ -61,9 +83,14 @@ export async function callGeminiAPI(userPrompt, history = [], systemPrompt = "")
     { role: "user", parts: [{ text: combinedPrompt }] },
   ];
 
-  const proxyPayload = { prompt: combinedPrompt, history: contents };
-  return await callGeminiProxy(proxyPayload);
+  const proxyPayload = {
+    prompt: combinedPrompt,
+    history: contents,
+  };
+
+  return await callGeminiProxy(proxyPayload, onChunk);
 }
+
 
 // ---------------------------------------------------------------------------
 // Chat UI helpers (markdown + typing indicator)
@@ -1020,3 +1047,4 @@ Return the translated JSON object starting with { and ending with }:`;
 
 // Re-export utility used in UI for CV summary
 export { calculateTotalExperience };
+
