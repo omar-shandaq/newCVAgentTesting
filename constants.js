@@ -9,7 +9,7 @@ export const LAST_RECOMMENDATIONS_KEY = "skillMatchLastRecommendations";
 
 // Proxy URL
 export const GEMINI_PROXY_URL = 
-  "https://ai-agent-cv-v3-15-12-6pn2-kydkwxpf7-omar-shandaqs-projects.vercel.app/api/chat";
+  "https://ai-agent-cv-v3-15-12-git-main-omar-shandaqs-projects.vercel.app/api/chat";
 
 import { loadCertificates, getCertificatesDatabase } from "./certificates-data.js";
 //Ghaith's change start
