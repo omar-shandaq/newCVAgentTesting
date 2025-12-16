@@ -20,6 +20,14 @@ import {
   //Ghaith's change end
 } from "./constants.js";
 
+// --- Persistence keys ---
+// Flag indicating whether user data should persist across sessions.  When unset,
+// we default to true so that first‑time users retain their data unless they
+// explicitly disable persistence.  These keys mirror those in the
+// personal_testing_repo_CV_agent repository marked with 12‑15‑2025 Joud comments.
+export const PERSISTENCE_KEY = "skillMatchIsSessionSaved";
+export const SUBMITTED_CVS_KEY = "skillMatchSubmittedCvs";
+
 // Certificate catalog (loaded on init)
 export let certificateCatalog = [];
 //Ghaith's change start
@@ -27,8 +35,42 @@ export let certificateCatalog = [];
 export let trainingCoursesCatalog = [];
 //Ghaith's change end
 
+// --- Persistence helper functions ---
+/**
+ * Check whether persistence is enabled.  If the flag has not yet been set,
+ * this returns true so that user data persists by default.  See Joud's
+ * changes for details.
+ */
+export function isPersistenceEnabled() {
+  const value = localStorage.getItem(PERSISTENCE_KEY);
+  return value === null || value === "true";
+}
+
+/**
+ * Enable or disable persistence.  When disabling, we immediately remove
+ * any persisted user data (chat history, user rules, recommendations and
+ * submitted CVs) to honour the user’s choice.  Static catalogs (e.g. certificate
+ * and training catalogs) are left intact because they contain non‑sensitive
+ * public information.
+ *
+ * @param {boolean} enabled whether to persist user data
+ */
+export function setPersistence(enabled) {
+  localStorage.setItem(PERSISTENCE_KEY, enabled ? "true" : "false");
+  if (!enabled) {
+    // wipe personal data when turning persistence off
+    localStorage.removeItem(CHAT_HISTORY_KEY);
+    localStorage.removeItem(USER_RULES_KEY);
+    localStorage.removeItem(LAST_RECOMMENDATIONS_KEY);
+    localStorage.removeItem(SUBMITTED_CVS_KEY);
+  }
+}
+
+// --- Data management (chat history, rules, recommendations) ---
 // Save chat history
 export function saveChatHistory(chatHistory) {
+  // Do not persist when persistence is disabled
+  if (!isPersistenceEnabled()) return;
   try {
     localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(chatHistory));
   } catch (err) {
@@ -51,6 +93,8 @@ export function loadChatHistory() {
 
 // Save user rules
 export function saveUserRules(userRules) {
+  // Do not persist when persistence is disabled
+  if (!isPersistenceEnabled()) return;
   try {
     localStorage.setItem(USER_RULES_KEY, JSON.stringify(userRules));
   } catch (err) {
@@ -75,6 +119,8 @@ export function loadUserRules() {
 
 // Save last recommendations
 export function saveLastRecommendations(lastRecommendations) {
+  // Do not persist when persistence is disabled
+  if (!isPersistenceEnabled()) return;
   try {
     localStorage.setItem(
       LAST_RECOMMENDATIONS_KEY,
@@ -98,19 +144,49 @@ export function loadLastRecommendations() {
   }
 }
 
+// --- New: persistence for submitted CVs ---
+/**
+ * Save the array of submitted CVs.  When persistence is disabled, this is a no‑op.
+ */
+export function saveSubmittedCvs(cvs) {
+  if (!isPersistenceEnabled()) return;
+  try {
+    localStorage.setItem(SUBMITTED_CVS_KEY, JSON.stringify(cvs));
+  } catch (err) {
+    console.warn("Failed to save CVs (likely quota exceeded):", err);
+  }
+}
+
+/**
+ * Load the array of previously submitted CVs.  Returns an empty array if none are
+ * saved or if parsing fails.
+ */
+export function loadSubmittedCvs() {
+  const saved = localStorage.getItem(SUBMITTED_CVS_KEY);
+  if (!saved) return [];
+  try {
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("Failed to parse saved CVs:", err);
+    return [];
+  }
+}
+
+// --- Catalog loading/persistence ---
 // Load certificate catalog (async - loads from JSON file)
 export async function loadCertificateCatalog() {
   // Initialize certificates if not already loaded
   await initializeCertificates();
-  
+
   // Get the loaded certificates
   certificateCatalog = getFinalCertificateCatalog();
-  
+
   // Persist to localStorage for faster future loads
   if (certificateCatalog && certificateCatalog.length > 0) {
     saveCertificateCatalog(certificateCatalog);
   }
-  
+
   return certificateCatalog;
 }
 
@@ -119,15 +195,15 @@ export async function loadCertificateCatalog() {
 export async function loadTrainingCoursesCatalog() {
   // Initialize training courses if not already loaded
   await initializeTrainingCourses();
-  
+
   // Get the loaded training courses
   trainingCoursesCatalog = getFinalTrainingCoursesCatalog();
-  
+
   // Persist to localStorage for faster future loads
   if (trainingCoursesCatalog && trainingCoursesCatalog.length > 0) {
     saveTrainingCoursesCatalog(trainingCoursesCatalog);
   }
-  
+
   return trainingCoursesCatalog;
 }
 
@@ -141,7 +217,7 @@ export function saveTrainingCoursesCatalog(catalogArray) {
 }
 //Ghaith's change end
 
-// Save catalog to storage
+// Save certificate catalog to storage
 export function saveCertificateCatalog(catalogArray) {
   try {
     localStorage.setItem(CERT_CATALOG_KEY, JSON.stringify(catalogArray));
@@ -150,7 +226,7 @@ export function saveCertificateCatalog(catalogArray) {
   }
 }
 
-// Catalog as prompt string
+// Catalog as prompt string for certificates
 export function getCatalogAsPromptString() {
   const catalog =
     certificateCatalog && certificateCatalog.length > 0
@@ -160,9 +236,9 @@ export function getCatalogAsPromptString() {
   return catalog
     .map(
       (c) =>
-        `- **${c.name || c.Certificate_Name_EN || "Unknown Certificate"}** (${
-          c.level || c.Level || "N/A"
-        }): ${c.description || c.Description || ""}${
+        `- **${c.name || c.Certificate_Name_EN || "Unknown Certificate"}** (${c.level || c.Level || "N/A"}): ${
+          c.description || c.Description || ""
+        }${
           c.fieldEn || c.Certificate_Field_EN
             ? ` | Field: ${c.fieldEn || c.Certificate_Field_EN}`
             : ""
@@ -186,18 +262,21 @@ export function getTrainingCoursesCatalogAsPromptString() {
   return catalog
     .map(
       (c) =>
-        `- **${c.name || c["Training Course Title"] || "Unknown Course"}** (${
-          c.level || c["Training Level"] || "N/A"
-        }): ${c.overview || c["Overview"] || ""}${
+        `- **${c.name || c["Training Course Title"] || "Unknown Course"}** (${c.level || c["Training Level"] || "N/A"}): ${c.overview || c["Overview"] || ""}$${
           c.fieldEn || c["Training Field"]
             ? ` | Field: ${c.fieldEn || c["Training Field"]}`
             : ""
-        }${c.totalHours || c["Total Hours"] ? ` | Hours: ${c.totalHours || c["Total Hours"]}` : ""}`
+        }${
+          c.totalHours || c["Total Hours"]
+            ? ` | Hours: ${c.totalHours || c["Total Hours"]}`
+            : ""
+        }`
     )
     .join("\n");
 }
 //Ghaith's change end
 
+// --- Search & indexing utilities ---
 // Basic in-memory search (case-insensitive) across common fields
 export function searchCertificates(query) {
   if (!query) return certificateCatalog;
@@ -246,7 +325,7 @@ export function searchByField(fieldName) {
   return idx.get(fieldName.toLowerCase()) || [];
 }
 
-// Recommendation summary for chat grounding
+// --- Recommendation summarization for chat grounding ---
 export function summarizeRecommendationsForChat(recs) {
   if (!recs || !Array.isArray(recs.candidates) || recs.candidates.length === 0) {
     return "No recommendations generated yet.";
@@ -257,9 +336,7 @@ export function summarizeRecommendationsForChat(recs) {
     lines.push(`Candidate: ${candidate.candidateName || "Candidate"}`);
     (candidate.recommendations || []).forEach((rec) => {
       lines.push(
-        `- ${rec.certName || "Certification"}${
-          rec.certId ? ` [${rec.certId}]` : ""
-        }: ${rec.reason || "Reason not provided"}`
+        `- ${rec.certName || "Certification"}${rec.certId ? ` [${rec.certId}]` : ""}: ${rec.reason || "Reason not provided"}`
       );
     });
     lines.push("");
@@ -268,7 +345,7 @@ export function summarizeRecommendationsForChat(recs) {
   return lines.join("\n").trim();
 }
 
-// Year extraction helpers
+// --- Year and experience calculation helpers ---
 export function extractYear(str) {
   const match = str.match(/\b(19|20)\d{2}\b/);
   return match ? parseInt(match[0], 10) : null;
@@ -282,7 +359,8 @@ export function calculateYearsFromPeriod(period) {
   const startYear = extractYear(parts[0].trim());
   const endYear =
     parts[1].toLowerCase().includes("present") ||
-    parts[1].toLowerCase().includes("current")
+    parts[1].toLowerCase().includes("current") ||
+    parts[1].toLowerCase().includes("now")
       ? currentYear
       : extractYear(parts[1].trim());
   if (!startYear || !endYear) return 0;

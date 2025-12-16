@@ -25,6 +25,12 @@ import {
   //Ghaith's change end
   calculateTotalExperience,
   calculateYearsFromPeriod,
+  // 12-15-2025 Joud start
+  setPersistence,
+  isPersistenceEnabled,
+  saveSubmittedCvs, // Imported
+  loadSubmittedCvs, // Imported
+  // 12-15-2025 joud end
 } from "./storage-catalog.js";
 
 import {
@@ -69,7 +75,10 @@ const UI_TEXT = {
     searchCv: "Search CV by name...",
     submit: "Submit",
     recommendationsTitle: "Recommendations",
-
+    // 12-15-2025 Joud start
+    // Save Toggle
+    saveSession: "Save Session",
+    // 12-15-2025 joud end
     downloadBtn: "Download Recommendations (PDF)",
     welcomeMessage: `Hello! I'm your training and certification assistant. I can help you:
       <ul>
@@ -138,7 +147,10 @@ const UI_TEXT = {
       كيف يمكنني مساعدتك اليوم؟`,
     toggleBtnText: "English",
     enterRule: "أدخل قاعدة عمل...",
-
+    // 12-15-2025 Joud start
+    // Save Toggle
+    saveSession: "حفظ الجلسة",
+    // 12-15-2025 Joud end
     // Timeline Text
     estTime: "الوقت التقديري لإكمال الشهادة:",
     total: "الإجمالي",
@@ -1591,6 +1603,11 @@ const renderSubmittedCvBubbles = (allResults) => {
       
       const cvToRemove = submittedCvData[idx];
       submittedCvData = submittedCvData.filter((_, i) => i !== idx);
+
+      // 12-15-2025 Joud start
+      // SAVE CVs after deletion
+      saveSubmittedCvs(submittedCvData);
+      // 12-15-2025 joud end
       
       if (cvToRemove && cvToRemove.name && allRecommendationsMap[cvToRemove.name]) {
         delete allRecommendationsMap[cvToRemove.name];
@@ -1639,6 +1656,13 @@ const renderSubmittedCvBubbles = (allResults) => {
 // Main bootstrap
 // ---------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", async () => {
+
+  // 12-15-2025 Joud start
+  // If no persistence, this clears data. If enabled, it does nothing.
+  if (!isPersistenceEnabled()) {
+    setPersistence(false); // Ensure keys are wiped on start if not enabled
+  }
+  // 12-15-2025 joud end
   saveChatHistory([]);
   saveLastRecommendations({ candidates: [] });
   
@@ -1651,6 +1675,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadTrainingCoursesCatalog();
   //Ghaith's change end
 
+    // 12-15-2025 Joud start
+  // 5. NEW: Load Persisted CVs
+  const savedCvs = loadSubmittedCvs();
+  if (savedCvs && savedCvs.length > 0) {
+    submittedCvData = savedCvs;
+    renderSubmittedCvBubbles(submittedCvData);
+    updateGenerateButton(submittedCvData);
+  }
+  // 12-15-2025 joud end
+  
   const userInput = document.getElementById("user-input");
   const sendButton = document.getElementById("send-button");
   const fileInput = document.getElementById("file-input");
@@ -1669,7 +1703,31 @@ document.addEventListener("DOMContentLoaded", async () => {
   saveUserRules(userRules);
 
   clearChatHistoryDom();
-
+  // 12-15-2025 Joud start
+  // Setup Persistence Toggle
+  const persistenceToggle = document.getElementById("persistence-toggle");
+  if (persistenceToggle) {
+    persistenceToggle.checked = isPersistenceEnabled();
+    persistenceToggle.addEventListener("change", (e) => {
+      const isEnabled = e.target.checked;
+      setPersistence(isEnabled);
+      
+      const msg = currentLang === 'ar' 
+        ? (isEnabled ? "تم تفعيل حفظ الجلسة." : "تم مسح البيانات المحفوظة.")
+        : (isEnabled ? "Session saving enabled." : "Session data cleared.");
+        
+      if (isEnabled) {
+        // Force save current state immediately
+        saveChatHistory(chatHistory);
+        saveUserRules(getRulesFromUI());
+        saveLastRecommendations(lastRecommendations);
+        saveSubmittedCvs(submittedCvData); // Save CVs
+      }
+      
+      updateStatus(uploadStatus, msg, false, msg);
+    });
+  }
+  // 12-15-2025 joud end
   // Chat Handler
   async function handleSendMessage() {
     const message = (userInput.value || "").trim();
@@ -1832,6 +1890,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         }));
 
         upsertAndRenderSubmittedCvs(extracted);
+        // 12-15-2025 Joud start
+        // SAVE newly uploaded CVs
+        saveSubmittedCvs(submittedCvData);
+        // 12-15-2025 joud end
         updateStatus(uploadStatus, "success");
         const generateBtn = document.getElementById("generate-recommendations-btn");
         if (generateBtn) generateBtn.disabled = false;
@@ -1869,10 +1931,18 @@ document.addEventListener("DOMContentLoaded", async () => {
               cvRef.structured = structuredSections;
               cvRef.isParsing = false;
               renderSubmittedCvBubbles(submittedCvData);
+              // 12-15-2025 Joud start
+              // SAVE after parsing complete
+              saveSubmittedCvs(submittedCvData);
+              // 12-15-2025 joud end
           } catch (err) {
               console.error(`Background parsing failed for ${cvRef.name}`, err);
               cvRef.isParsing = false;
               renderSubmittedCvBubbles(submittedCvData);
+              // 12-15-2025 Joud start
+              // Save anyway to remove spinner state
+              saveSubmittedCvs(submittedCvData);
+              // 12-15-2025 joud end
           }
       });
   }
@@ -1968,6 +2038,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (submitCvReview) {
     submitCvReview.addEventListener("click", async () => {
       syncActiveCvFromDom();
+      // 12-15-2025 Joud start
+      // SAVE updated data from modal
+      saveSubmittedCvs(submittedCvData);
+      // 12-15-2025 Joud end
+     
       document.getElementById("cvModal").style.display = "none";
       if (submittedCvData.length > 0) {
         const generateBtn = document.getElementById("generate-recommendations-btn");
