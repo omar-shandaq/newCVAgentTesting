@@ -869,7 +869,7 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
   pdfStyle.textContent = `
     /*Ghaith's change start - compact PDF */
     .pdf-content { font-size: 12px; }
-    .pdf-candidate-result { margin-top: 8px; padding-bottom: 6px; }
+    .pdf-candidate-result { margin-top: 10px; margin-bottom: 10px; }
     .pdf-candidate-result:first-child { margin-top: 0 !important; padding-top: 0 !important; }
     .pdf-subsection { margin-top: 6px; }
     .pdf-subsection h3 { font-size: 13.5px; margin: 8px 0 6px 0; }
@@ -897,8 +897,8 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
     if (index === 0) {
       candidateSection.style.pageBreakBefore = 'avoid';
       candidateSection.style.breakBefore = 'avoid';
-      candidateSection.style.marginTop = '0';
-      candidateSection.style.paddingTop = '0';
+      candidateSection.style.marginTop = '4px';
+      candidateSection.style.paddingTop = '4px';
     } else {
       candidateSection.style.pageBreakBefore = 'always';
       candidateSection.style.breakBefore = 'page';
@@ -2008,3 +2008,4 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 });
+
