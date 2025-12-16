@@ -7,9 +7,18 @@ export const TRAINING_CATALOG_KEY = "skillMatchTrainingCatalog";
 export const USER_RULES_KEY = "skillMatchUserRules";
 export const LAST_RECOMMENDATIONS_KEY = "skillMatchLastRecommendations";
 
+// 16-12-2025 Ghaith's Change Start - split non-stream and stream endpoints
+export const GEMINI_PROXY_URL =
+  //"/api/legacy-gemini-proxy";
+  "/api/gemini-proxy"; // JSON (non-stream) endpoint used by callGeminiAPI and analysis flows
+
+export const GEMINI_STREAM_URL =
+  "/api/gemini-stream"; // Streaming endpoint used only by chat UI
+// 16-12-2025 Ghaith's Change End
+
 // Proxy URL
-export const GEMINI_PROXY_URL = 
-  "https://backend-vercel-repo-git-main-jouds-projects-8f56041e.vercel.app/api/gemini-proxy";
+//export const GEMINI_PROXY_URL = 
+  //"https://backend-vercel-repo-git-main-jouds-projects-8f56041e.vercel.app/api/gemini-proxy";
 
 import { loadCertificates, getCertificatesDatabase } from "./certificates-data.js";
 //Ghaith's change start

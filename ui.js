@@ -25,6 +25,12 @@ import {
   //Ghaith's change end
   calculateTotalExperience,
   calculateYearsFromPeriod,
+  // 12-15-2025 Joud start
+  setPersistence,
+  isPersistenceEnabled,
+  saveSubmittedCvs, // Imported
+  loadSubmittedCvs, // Imported
+  // 12-15-2025 joud end
 } from "./storage-catalog.js";
 
 import {
@@ -38,7 +44,10 @@ import {
   parseAndApplyRules,
   analyzeCvsWithAI,
   displayRecommendations,
+  // 16-12-2025 Ghaith's Change Start
   callGeminiAPI,
+  callGeminiProxyStream,
+  // 16-12-2025 Ghaith's Change End
   analyzeSingleCvWithAI, 
 } from "./ai.js";
 
@@ -70,7 +79,10 @@ const UI_TEXT = {
     searchCv: "Search CV by name...",
     submit: "Submit",
     recommendationsTitle: "Recommendations",
-
+    // 12-15-2025 Joud start
+    // Save Toggle
+    saveSession: "Save Session",
+    // 12-15-2025 joud end
     downloadBtn: "Download Recommendations (PDF)",
     welcomeMessage: `Hello! I'm your training and certification assistant. I can help you:
       <ul>
@@ -141,7 +153,10 @@ const UI_TEXT = {
       كيف يمكنني مساعدتك اليوم؟`,
     toggleBtnText: "English",
     enterRule: "أدخل قاعدة عمل...",
-
+    // 12-15-2025 Joud start
+    // Save Toggle
+    saveSession: "حفظ الجلسة",
+    // 12-15-2025 Joud end
     // Timeline Text
     estTime: "الوقت التقديري لإكمال الشهادة:",
     total: "الإجمالي",
@@ -796,7 +811,6 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
   //Ghaith's change start - remove top spacing so header is at very top of page
   pdfContainer.style.marginTop = '0';
   pdfContainer.style.paddingTop = '0';
-  pdfContainer.style.padding = '8px';
   //Ghaith's change end
   if (isArabic) {
     pdfContainer.style.direction = 'rtl';
@@ -859,8 +873,6 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
       </div>
     </div>
   `;
- 
-
   pdfContainer.appendChild(header);
   //Ghaith's change end
 
@@ -869,10 +881,11 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
   pdfStyle.textContent = `
     /*Ghaith's change start - compact PDF */
     .pdf-content { font-size: 12px; }
-    .pdf-candidate-result { margin-top: 10px; margin-bottom: 10px; }
+    /* 16-12-2025 Ghaith's Change - use padding instead of margin so sections don't float between pages */
+    .pdf-candidate-result { margin-top: 0; padding: 8px 0 6px 0; }
     .pdf-candidate-result:first-child { margin-top: 0 !important; padding-top: 0 !important; }
-    .pdf-subsection { margin-top: 6px; }
-    .pdf-subsection h3 { font-size: 13.5px; margin: 8px 0 6px 0; }
+    .pdf-subsection { margin-top: 4px; }
+    .pdf-subsection h3 { font-size: 13.5px; margin: 6px 0 4px 0; }
     .pdf-recommendation-card { font-size: 12px; padding: 6px 8px !important; }
     .pdf-recommendation-title { font-size: 13px; }
     .pdf-recommendation-reason { font-size: 12px; }
@@ -897,8 +910,8 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
     if (index === 0) {
       candidateSection.style.pageBreakBefore = 'avoid';
       candidateSection.style.breakBefore = 'avoid';
-      candidateSection.style.marginTop = '4px';
-      candidateSection.style.paddingTop = '4px';
+      candidateSection.style.marginTop = '0';
+      candidateSection.style.paddingTop = '0';
     } else {
       candidateSection.style.pageBreakBefore = 'always';
       candidateSection.style.breakBefore = 'page';
@@ -914,12 +927,10 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
     const nameHeader = document.createElement('h3');
     nameHeader.className = 'pdf-candidate-name';
     nameHeader.style.color = '#074D31';
-    //Ghaith's change start - reduce spacing for first candidate to ensure certificates start on page 1
-    if (index === 0) {
-      nameHeader.style.marginTop = '8px';
-      nameHeader.style.marginBottom = '6px';
-    }
-    //Ghaith's change end
+    // 16-12-2025 Ghaith's Change Start - CV section title directly under header (minimal gap)
+    nameHeader.style.marginTop = '4px';
+    nameHeader.style.marginBottom = '6px';
+    // 16-12-2025 Ghaith's Change End
     nameHeader.textContent = `${UI_TEXT[language].pdfCandidate}: ${displayCandidateName}`;
     candidateSection.appendChild(nameHeader);
 
@@ -1103,17 +1114,18 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
     if (candidate.trainingCourses && candidate.trainingCourses.length > 0) {
       const trainingSubsection = document.createElement('div');
       trainingSubsection.className = 'pdf-subsection';
-      //Ghaith's change start - training courses should start at the top of a new page with spacing to prevent cutoff
-      trainingSubsection.innerHTML = `<h3 style="color:#1B8354; margin-top:8px;">${language === 'ar' ? 'الدورات التدريبية' : 'Training Courses'}</h3>`;
-      //Ghaith's change start - training courses start at top of new page, add padding to prevent header cutoff
-      trainingSubsection.style.pageBreakInside = 'avoid';
-      trainingSubsection.style.breakInside = 'avoid';
-      trainingSubsection.style.pageBreakBefore = 'always';
-      trainingSubsection.style.breakBefore = 'page';
+      // 16-12-2025 Ghaith's Change Start - training directly after certificates (minimal gap, allow header to move up)
+      trainingSubsection.innerHTML = `<h3 style="color:#023B42; margin-top:6px;">${language === 'ar' ? 'الدورات التدريبية' : 'Training Courses'}</h3>`;
+      // Allow page breaks inside the subsection so the header can appear on the previous page
+      // while each card/timeline object still avoids splitting.
+      // trainingSubsection.style.pageBreakInside = 'avoid';
+      // trainingSubsection.style.breakInside = 'avoid';
+      trainingSubsection.style.pageBreakBefore = 'avoid';
+      trainingSubsection.style.breakBefore = 'avoid';
       trainingSubsection.style.pageBreakAfter = 'avoid';
       trainingSubsection.style.breakAfter = 'avoid';
       trainingSubsection.style.paddingTop = '4px';
-      //Ghaith's change end
+      // 16-12-2025 Ghaith's Change End
       
       let trainingTimeline = [];
       let trainingTotalHours = 0;
@@ -1598,6 +1610,11 @@ const renderSubmittedCvBubbles = (allResults) => {
       
       const cvToRemove = submittedCvData[idx];
       submittedCvData = submittedCvData.filter((_, i) => i !== idx);
+
+      // 12-15-2025 Joud start
+      // SAVE CVs after deletion
+      saveSubmittedCvs(submittedCvData);
+      // 12-15-2025 joud end
       
       if (cvToRemove && cvToRemove.name && allRecommendationsMap[cvToRemove.name]) {
         delete allRecommendationsMap[cvToRemove.name];
@@ -1646,18 +1663,64 @@ const renderSubmittedCvBubbles = (allResults) => {
 // Main bootstrap
 // ---------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", async () => {
-  saveChatHistory([]);
-  saveLastRecommendations({ candidates: [] });
+  // 1. Declare variables first
+  let chatHistory = []; 
   
+  // 2. Initialize Language FIRST (prevents re-triggering loader on existing data)
   initializeLanguage();
+  // 12-15-2025 Joud start
+  // 3. Persistence Logic
+  if (!isPersistenceEnabled()) {
+    setPersistence(false); 
+    saveChatHistory([]);
+    saveLastRecommendations({ candidates: [] });
+  } else {
+    // Load data
+    chatHistory = loadChatHistory();
+    lastRecommendations = loadLastRecommendations() || { candidates: [] };
 
-  let chatHistory = [];
-  
+    // Restore chat
+    if (chatHistory.length > 0) {
+        const chatContainer = document.getElementById("chat-messages");
+        if (chatContainer) {
+            chatContainer.innerHTML = ""; 
+            chatHistory.forEach(msg => addMessage(msg.text, msg.isUser));
+        }
+    }
+
+    // Restore recommendations (Displays instantly without loader)
+    if (lastRecommendations && lastRecommendations.candidates && lastRecommendations.candidates.length > 0) {
+      lastRecommendations.candidates.forEach(cand => {
+        if (cand.cvName) {
+          allRecommendationsMap[cand.cvName] = cand;
+        }
+      });
+
+      const recommendationsContainer = document.getElementById("recommendations-container");
+      const resultsSection = document.getElementById("results-section");
+      
+      if (recommendationsContainer && resultsSection) {
+        displayRecommendations(lastRecommendations, recommendationsContainer, resultsSection, currentLang);
+        updateDownloadButtonVisibility(lastRecommendations);
+      }
+    }
+  }
+  // 12-15-2025 joud end
   await loadCertificateCatalog();
   //Ghaith's change start
   await loadTrainingCoursesCatalog();
   //Ghaith's change end
 
+    // 12-15-2025 Joud start
+  // 5. NEW: Load Persisted CVs
+  const savedCvs = loadSubmittedCvs();
+  if (savedCvs && savedCvs.length > 0) {
+    submittedCvData = savedCvs;
+    renderSubmittedCvBubbles(submittedCvData);
+    updateGenerateButton(submittedCvData);
+  }
+  // 12-15-2025 joud end
+  
   const userInput = document.getElementById("user-input");
   const sendButton = document.getElementById("send-button");
   const fileInput = document.getElementById("file-input");
@@ -1676,42 +1739,211 @@ document.addEventListener("DOMContentLoaded", async () => {
   saveUserRules(userRules);
 
   clearChatHistoryDom();
-
+  // 12-15-2025 Joud start
+  // Setup Persistence Toggle
+  const persistenceToggle = document.getElementById("persistence-toggle");
+  if (persistenceToggle) {
+    persistenceToggle.checked = isPersistenceEnabled();
+    persistenceToggle.addEventListener("change", (e) => {
+      const isEnabled = e.target.checked;
+      setPersistence(isEnabled);
+      
+      const msg = currentLang === 'ar' 
+        ? (isEnabled ? "تم تفعيل حفظ الجلسة." : "تم مسح البيانات المحفوظة.")
+        : (isEnabled ? "Session saving enabled." : "Session data cleared.");
+        
+      if (isEnabled) {
+        // Force save current state immediately
+        saveChatHistory(chatHistory);
+        saveUserRules(getRulesFromUI());
+        saveLastRecommendations(lastRecommendations);
+        saveSubmittedCvs(submittedCvData); // Save CVs
+      }
+      
+      updateStatus(uploadStatus, msg, false, msg);
+    });
+  }
+  // 12-15-2025 joud end
   // Chat Handler
+
+  
+  // 16-12-2025 Ghaith's Change Start
   async function handleSendMessage() {
     const message = (userInput.value || "").trim();
     if (!message) return;
 
+    // Add user message to the chat UI
     addMessage(message, true);
     chatHistory.push({ text: message, isUser: true });
-
+    // --- FIX START joud 16-12-2025: Save immediately after user sends message ---
+    saveChatHistory(chatHistory);
+    // --- FIX END ---
     userInput.value = "";
     sendButton.disabled = true;
-    showTypingIndicator();
+    const typingEl = showTypingIndicator();
 
     try {
-      const cvArrayForChat = submittedCvData.length > 0 ? submittedCvData : uploadedCvs;
+      const cvArrayForChat =
+        submittedCvData.length > 0 ? submittedCvData : uploadedCvs;
       const normalizedCvsForChat = cvArrayForChat.map((cv) => ({
-         name: cv.name,
-         text: cv.text,
-         structured: cv.structured || cv,
+        name: cv.name,
+        text: cv.text,
+        structured: cv.structured || cv,
       }));
-      const enhancedSystemPrompt = buildChatSystemPrompt(normalizedCvsForChat, currentLang);
-      
-      let enhancedMessage = buildChatContextMessage(message, userRules, lastRecommendations, currentLang);
-      const reply = await callGeminiAPI(enhancedMessage, chatHistory, enhancedSystemPrompt);
 
-      hideTypingIndicator();
-      addMessage(reply, false);
-      chatHistory.push({ text: reply, isUser: false });
+      const enhancedSystemPrompt = buildChatSystemPrompt(
+        normalizedCvsForChat,
+        currentLang
+      );
+
+      const enhancedMessage = buildChatContextMessage(
+        message,
+        userRules,
+        lastRecommendations,
+        currentLang
+      );
+
+      // Prepare payload for the streaming proxy (reusing the same structure
+      // that callGeminiAPI builds internally).
+      const formattedHistory = chatHistory.map((msg) => ({
+        role: msg.isUser ? "user" : "model",
+        parts: [{ text: msg.text }],
+      }));
+      const combinedPrompt = enhancedSystemPrompt
+        ? `${enhancedSystemPrompt.trim()}\n\nUser message:\n${enhancedMessage}`
+        : enhancedMessage;
+      const contents = [
+        ...formattedHistory,
+        { role: "user", parts: [{ text: combinedPrompt }] },
+      ];
+      const proxyPayload = { prompt: combinedPrompt, history: contents };
+
+      // Create an empty bot message div we will progressively fill as chunks arrive
+      const chatMessages = document.getElementById("chat-messages");
+      const botMessageDiv = document.createElement("div");
+      botMessageDiv.className = "message bot-message";
+      botMessageDiv.innerHTML = "";
+      // 16-12-2025 Ghaith's Change Start - hide empty bot bubble until content arrives
+      botMessageDiv.style.display = "none";
+      // 16-12-2025 Ghaith's Change End
+      if (chatMessages) {
+        chatMessages.appendChild(botMessageDiv);
+        // 16-12-2025 Ghaith's Change - delete these (auto-scroll on bot message)
+        // chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+
+      let accumulatedText = "";
+      // Track if any non-empty content was received
+      let hasContent = false;
+      // Track if we've done the initial scroll adjustment
+      let hasPerformedInitialScroll = false;
+
+      await callGeminiProxyStream(
+        proxyPayload,
+        (chunk) => {
+          accumulatedText += chunk;
+          if (botMessageDiv) {
+            // First real chunk: show bubble, hide typing, perform initial scroll adjustment
+            if (!hasContent && accumulatedText.trim()) {
+              hasContent = true;
+              botMessageDiv.style.display = "";
+              hideTypingIndicator();
+              
+              // Render the first chunk content so we can measure it
+              if (typeof marked !== "undefined") {
+                botMessageDiv.innerHTML = marked.parse(accumulatedText);
+              } else {
+                botMessageDiv.innerHTML = accumulatedText.replace(/\n/g, "<br>");
+              }
+              
+              // Perform a single initial scroll adjustment to maximize visibility of the first chunk
+              // Use requestAnimationFrame to ensure DOM has updated and measurements are accurate
+              if (!hasPerformedInitialScroll && chatMessages) {
+                hasPerformedInitialScroll = true;
+                requestAnimationFrame(() => {
+                  const container = chatMessages;
+                  const bubble = botMessageDiv;
+                  
+                  if (!container || !bubble) return;
+                  
+                  // Get bubble's position within the scrollable container
+                  const bubbleTop = bubble.offsetTop;
+                  const bubbleHeight = bubble.offsetHeight;
+                  const containerHeight = container.clientHeight;
+                  const currentScrollTop = container.scrollTop;
+                  
+                  // Calculate how much of the bubble is currently visible
+                  const bubbleBottom = bubbleTop + bubbleHeight;
+                  const visibleTop = Math.max(0, bubbleTop - currentScrollTop);
+                  const visibleBottom = Math.min(containerHeight, bubbleBottom - currentScrollTop);
+                  const currentlyVisible = Math.max(0, visibleBottom - visibleTop);
+                  
+                  // Determine if we need to scroll to improve visibility
+                  // We want to maximize visible content by positioning the bubble near the top
+                  // of the viewport, but leave a small margin for visual spacing
+                  const needsScroll = 
+                    bubbleTop < currentScrollTop || // Bubble is above viewport
+                    currentlyVisible < Math.min(bubbleHeight, containerHeight * 0.5); // Less than half visible
+                  
+                  if (needsScroll) {
+                    // Position bubble near the top of viewport to maximize visible lines
+                    // Use a small margin (20px) to leave some visual breathing room
+                    const targetMargin = 20;
+                    const optimalScrollTop = Math.max(0, bubbleTop - targetMargin);
+                    
+                    // Smooth scroll to the optimal position
+                    container.scrollTop = optimalScrollTop;
+                  }
+                });
+              }
+            } else if (hasContent) {
+              // Subsequent chunks: just update content without changing scroll position
+              if (typeof marked !== "undefined") {
+                botMessageDiv.innerHTML = marked.parse(accumulatedText);
+              } else {
+                botMessageDiv.innerHTML = accumulatedText.replace(/\n/g, "<br>");
+              }
+            }
+          }
+        },
+        () => {
+          // 16-12-2025 Ghaith's Change Start - if no content ever arrived, remove empty bubble
+          if (!hasContent && botMessageDiv && botMessageDiv.parentNode) {
+            botMessageDiv.parentNode.removeChild(botMessageDiv);
+          }
+
+          if (hasContent && accumulatedText.trim()) {
+            chatHistory.push({ text: accumulatedText, isUser: false });
+            // --- FIX START joud 16-12-2025: Save immediately after bot finishes replying ---
+            saveChatHistory(chatHistory);
+            // --- FIX END ---
+          }
+          // Typing indicator is already hidden on first chunk if any content exists
+          hideTypingIndicator();
+          sendButton.disabled = false;
+          // 16-12-2025 Ghaith's Change End
+        },
+        (err) => {
+          console.error("Chat streaming error:", err);
+          hideTypingIndicator();
+          if (botMessageDiv) {
+            botMessageDiv.innerHTML =
+              "Connection error while streaming. Please try again.";
+          } else {
+            addMessage("Connection error while streaming. Please try again.", false);
+          }
+          sendButton.disabled = false;
+        }
+      );
     } catch (err) {
-      console.error("Chat API Error:", err);
+      console.error("Chat Handler Error:", err);
       hideTypingIndicator();
       addMessage("Connection error. Please try again.", false);
-    } finally {
       sendButton.disabled = false;
     }
   }
+  // 16-12-2025 Ghaith's Change End
+
 
   if (sendButton) sendButton.addEventListener("click", handleSendMessage);
   if (userInput) {
@@ -1730,7 +1962,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       setButtonLoading(generateBtn, true);
       recommendationsContainer.innerHTML = "";
       resultsSection.classList.remove("hidden");
-      resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // NOTE: no automatic scrolling here; user controls page scroll
 
       //Ghaith's change start - remove empty business rule inputs before generating
       const rulesContainer = document.getElementById("rules-container");
@@ -1839,6 +2071,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         }));
 
         upsertAndRenderSubmittedCvs(extracted);
+        // 12-15-2025 Joud start
+        // SAVE newly uploaded CVs
+        saveSubmittedCvs(submittedCvData);
+        // 12-15-2025 joud end
         updateStatus(uploadStatus, "success");
         const generateBtn = document.getElementById("generate-recommendations-btn");
         if (generateBtn) generateBtn.disabled = false;
@@ -1876,10 +2112,18 @@ document.addEventListener("DOMContentLoaded", async () => {
               cvRef.structured = structuredSections;
               cvRef.isParsing = false;
               renderSubmittedCvBubbles(submittedCvData);
+              // 12-15-2025 Joud start
+              // SAVE after parsing complete
+              saveSubmittedCvs(submittedCvData);
+              // 12-15-2025 joud end
           } catch (err) {
               console.error(`Background parsing failed for ${cvRef.name}`, err);
               cvRef.isParsing = false;
               renderSubmittedCvBubbles(submittedCvData);
+              // 12-15-2025 Joud start
+              // Save anyway to remove spinner state
+              saveSubmittedCvs(submittedCvData);
+              // 12-15-2025 joud end
           }
       });
   }
@@ -1975,6 +2219,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (submitCvReview) {
     submitCvReview.addEventListener("click", async () => {
       syncActiveCvFromDom();
+      // 12-15-2025 Joud start
+      // SAVE updated data from modal
+      saveSubmittedCvs(submittedCvData);
+      // 12-15-2025 Joud end
+     
       document.getElementById("cvModal").style.display = "none";
       if (submittedCvData.length > 0) {
         const generateBtn = document.getElementById("generate-recommendations-btn");
@@ -2008,4 +2257,5 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 });
+
 
