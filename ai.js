@@ -27,6 +27,16 @@ import {
   CV_PARSER_SYSTEM_PROMPT,
 } from "./prompts.js";
 
+// 15-12-2025 Starting Taif's updates 
+
+const RETRY_CONFIG = {
+  maxRetries: 3,              // Number of retry attempts
+  initialDelay: 1000,         // Initial delay in ms
+  maxDelay: 5000,             // Maximum delay in ms
+  backoffMultiplier: 2        // Exponential backoff multiplier
+};
+
+// 15-12-2025 Ending Taif's updates
 // ---------------------------------------------------------------------------
 // Proxy + Gemini call - INTEGRATED: Your proxy function
 // ---------------------------------------------------------------------------
@@ -115,7 +125,7 @@ export function buildChatSystemPrompt(uploadedCvs) {
   const trainingCatalogString = getTrainingCoursesCatalogAsPromptString();
   //Ghaith's change end
   const hasCvContext = uploadedCvs.length > 0;
-  
+
   // Safe handling if structured data is not yet parsed (isParsing=true)
   const cvContext = hasCvContext
     ? `\n\n**Available CV Context:**\nThe user has uploaded ${uploadedCvs.length} CV(s). You can reference their experience, skills, and background when making recommendations.`
@@ -143,9 +153,9 @@ When recommending certifications, always:
 5. When users ask casual questions like "what certifications should I get?" or "what matches my experience?", provide personalized recommendations with clear explanations
 
 **IMPORTANT - CV Upload Encouragement:**
-${hasCvContext 
-  ? "The user has uploaded their CV, so you can provide personalized recommendations based on their actual experience, skills, and background."
-  : `When answering questions about certifications or courses:
+${hasCvContext
+      ? "The user has uploaded their CV, so you can provide personalized recommendations based on their actual experience, skills, and background."
+      : `When answering questions about certifications or courses:
 - Always provide a helpful, informative answer first
 - After your answer, naturally suggest: "If you'd like me to give you a more detailed review and personalized recommendations based on your specific experience, skills, and career goals, please upload your CV. I can then analyze your background and provide tailored certification suggestions that align perfectly with your profile."
 - Be friendly and encouraging, not pushy
@@ -214,7 +224,7 @@ export async function extractTextFromFile(file) {
   }
   if (
     type ===
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     name.endsWith(".docx")
   ) {
     return await extractTextFromDocx(file);
@@ -298,7 +308,7 @@ export function buildAnalysisPromptForCvs(cvArray, rulesArray, language = 'en') 
   //Ghaith's change start
   const trainingCatalogString = getTrainingCoursesCatalogAsPromptString();
   //Ghaith's change end
-  const langInstruction = language === 'ar' 
+  const langInstruction = language === 'ar'
     //Ghaith's change start
     ? "Output the 'reason' field strictly in Arabic. Keep 'candidateName', 'certName', and 'courseName' in their original text."
     //Ghaith's change end
@@ -377,8 +387,9 @@ Begin your response now with the JSON object only:
 /**
  * NEW: Analyzes a single CV and returns recommendations for just that person.
  * Includes robust JSON extraction to handle AI chatter.
+ * 15-12-2025: Added retry mechanism with exponential backoff - Taif
  */
-export async function analyzeSingleCvWithAI(cv, rulesArray, language = 'en') {
+export async function analyzeSingleCvWithAI(cv, rulesArray, language = 'en', maxRetries = 3) {
   const catalogString = getCatalogAsPromptString();
   //Ghaith's change start
   const trainingCatalogString = getTrainingCoursesCatalogAsPromptString();
@@ -455,109 +466,133 @@ Provide recommendations for this specific candidate in strict JSON format.
 - Start with { and end with }
 `;
 
-  const rawResponse = await callGeminiAPI(prompt, [], "");
-  
-  // --- ROBUST JSON EXTRACTION LOGIC ---
-  let cleaned = rawResponse.trim();
-  
-  // Helper to extract JSON by balancing braces
-  function extractJSON(str) {
-    const startIndex = str.indexOf('{');
-    if (startIndex === -1) return null;
+  // 15-12-2025 Starting Taif's updates 
+  let lastError = null;
 
-    let balance = 0;
-    let inString = false;
-    let escaped = false;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const rawResponse = await callGeminiAPI(prompt, [], "");
 
-    for (let i = startIndex; i < str.length; i++) {
-      const char = str[i];
+      // --- ROBUST JSON EXTRACTION LOGIC (Joud's code) ---
+      let cleaned = rawResponse.trim();
 
-      if (inString) {
-        if (char === '\\' && !escaped) escaped = true;
-        else if (char === '"' && !escaped) inString = false;
-        else escaped = false;
-      } else {
-        if (char === '"') {
-          inString = true;
-        } else if (char === '{') {
-          balance++;
-        } else if (char === '}') {
-          balance--;
-          if (balance === 0) {
-            // Found the matching closing brace
-            return str.substring(startIndex, i + 1);
+      // Helper to extract JSON by balancing braces
+      function extractJSON(str) {
+        const startIndex = str.indexOf('{');
+        if (startIndex === -1) return null;
+
+        let balance = 0;
+        let inString = false;
+        let escaped = false;
+
+        for (let i = startIndex; i < str.length; i++) {
+          const char = str[i];
+
+          if (inString) {
+            if (char === '\\' && !escaped) escaped = true;
+            else if (char === '"' && !escaped) inString = false;
+            else escaped = false;
+          } else {
+            if (char === '"') {
+              inString = true;
+            } else if (char === '{') {
+              balance++;
+            } else if (char === '}') {
+              balance--;
+              if (balance === 0) {
+                // Found the matching closing brace
+                return str.substring(startIndex, i + 1);
+              }
+            }
           }
         }
+        return null;
+      }
+
+      const jsonSubset = extractJSON(cleaned);
+
+      // Fallback to original cleaning if extractor fails (rare)
+      if (jsonSubset) {
+        cleaned = jsonSubset;
+      } else {
+        cleaned = cleaned.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+        const firstBrace = cleaned.indexOf("{");
+        const lastBrace = cleaned.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+        }
+      }
+      // -------------------------------------
+
+      const singleResult = JSON.parse(cleaned);
+      singleResult.cvName = cv.name;
+
+      // Ensure recommendationIntro exists as a string for downstream UI/PDF usage
+      if (typeof singleResult.recommendationIntro !== "string") {
+        singleResult.recommendationIntro =
+          language === "ar"
+            ? "لم يتم العثور على توصيات مناسبة بناءً على المعلومات المتاحة. بناءً على ذلك، نوصي بالشهادات التالية:"
+            : "No suitable recommendations found based on available information. Based on this, we recommend the following certificates:";
+      }
+
+      
+      return singleResult;
+
+    } catch (err) {
+      lastError = err;
+      console.error(`Attempt ${attempt}/${maxRetries} failed for CV ${cv.name}:`, err.message);
+
+      
+      if (attempt < maxRetries) {
+        const delay = Math.min(
+          RETRY_CONFIG.initialDelay * Math.pow(RETRY_CONFIG.backoffMultiplier, attempt - 1),
+          RETRY_CONFIG.maxDelay
+        );
+        console.error(`Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    return null;
   }
 
-  const jsonSubset = extractJSON(cleaned);
-  
-  // Fallback to original cleaning if extractor fails (rare)
-  if (jsonSubset) {
-    cleaned = jsonSubset;
-  } else {
-    cleaned = cleaned.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-    const firstBrace = cleaned.indexOf("{");
-    const lastBrace = cleaned.lastIndexOf("}");
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-    }
-  }
-  // -------------------------------------
+  // All retries exhausted - return fallback
+  console.error(`All ${maxRetries} attempts failed for CV ${cv.name}:`, lastError);
 
-  try {
-    const singleResult = JSON.parse(cleaned);
-    singleResult.cvName = cv.name;
-    // Ensure recommendationIntro exists as a string for downstream UI/PDF usage
-    if (typeof singleResult.recommendationIntro !== "string") {
-      singleResult.recommendationIntro =
-        language === "ar"
-          ? "لم يتم العثور على توصيات مناسبة بناءً على المعلومات المتاحة. بناءً على ذلك، نوصي بالشهادات التالية:"
-          : "No suitable recommendations found based on available information. Based on this, we recommend the following certificates:";
-    }
-    return singleResult;
-  } catch (err) {
-    console.error(`Error parsing AI response for ${cv.name}:`, err);
-    console.log("Failed content:", cleaned); // Log for debugging
-    return {
-      candidateName: cv.name,
-      cvName: cv.name,
-      recommendationIntro:
-        language === "ar"
-          ? "لم يتم العثور على توصيات مناسبة بناءً على المعلومات المتاحة. بناءً على ذلك، نوصي بالشهادات التالية:"
-          : "No suitable recommendations found based on available information. Based on this, we recommend the following certificates:",
-      recommendations: [],
-      error: "Failed to generate recommendations."
-    };
-  }
+  return {
+    candidateName: cv.name,
+    cvName: cv.name,
+    recommendationIntro:
+      language === "ar"
+        ? "لم يتم العثور على توصيات مناسبة بناءً على المعلومات المتاحة. بناءً على ذلك، نوصي بالشهادات التالية:"
+        : "No suitable recommendations found based on available information. Based on this, we recommend the following certificates:",
+    recommendations: [],
+    error: `Failed to generate recommendations after ${maxRetries} attempts.`
+  };
+  // 15-12-2025 Ending Taif's updates - Retry mechanism
 }
 // END OF EDIT BY JOUD
 
 export async function analyzeCvsWithAI(cvArray, rulesArray, language = 'en') {
   const analysisPrompt = buildAnalysisPromptForCvs(cvArray, rulesArray || [], language);
   const rawResponse = await callGeminiAPI(analysisPrompt, [], "");
-  
+
   // Log raw response for debugging
   console.log("Raw AI Response:", rawResponse);
-  
+
   // Try multiple cleaning strategies
   let cleaned = rawResponse.trim();
-  
+
   // Remove markdown code blocks
   cleaned = cleaned.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-  
+
   // Try to extract JSON object if there's text before/after
   // Look for the first { and last } to extract the JSON object
   const firstBrace = cleaned.indexOf("{");
   const lastBrace = cleaned.lastIndexOf("}");
-  
+
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
     cleaned = cleaned.substring(firstBrace, lastBrace + 1);
   }
-  
+
   // Remove any leading/trailing non-JSON text
   cleaned = cleaned.trim();
 
@@ -596,7 +631,7 @@ export function displayRecommendations(recommendations, containerEl, resultsSect
     if (hours < 200) return "#ffe5b4";
     return "#f5b5b5";
   }
-  
+
   if (
     !recommendations ||
     !recommendations.candidates ||
@@ -687,12 +722,12 @@ export function displayRecommendations(recommendations, containerEl, resultsSect
             catalogEntry?.estimated_hours ??
             0;
           let hours = Number(rawHours) || 0;
-          
+
           // Debug: log if hours are found
           if (!hours && catalogEntry) {
             console.warn(`No hours found for certificate: ${rec.certName}`, catalogEntry);
           }
-          
+
           //Ghaith's change start
           certTimeline.push({ name: displayName, hours });
           certTotalHours += hours;
@@ -715,17 +750,16 @@ export function displayRecommendations(recommendations, containerEl, resultsSect
             <div class="recommendation-hours recommendation-hours-inline">
               <i class="far fa-clock"></i>
               <span>${language === "ar"
-                      ? "الوقت التقديري لإكمال الشهادة:"
-                      : "Estimated time to complete:"}
+              ? "الوقت التقديري لإكمال الشهادة:"
+              : "Estimated time to complete:"}
               </span>
               <strong>${hoursText}</strong>
-              ${
-                rec.rulesApplied && rec.rulesApplied.length > 0
-                  ? `<span class="recommendation-rule-inline">
+              ${rec.rulesApplied && rec.rulesApplied.length > 0
+              ? `<span class="recommendation-rule-inline">
                        <i class="fas fa-gavel"></i> Rules Applied: ${rec.rulesApplied.join(", ")}
                      </span>`
-                  : ""
-              }
+              : ""
+            }
             </div>
           `;
           //Ghaith's change start
@@ -828,14 +862,14 @@ export function displayRecommendations(recommendations, containerEl, resultsSect
           if (rec && (rec.hours || rec.totalHours || rec.estimatedHours)) {
             hours = rec.hours || rec.totalHours || rec.estimatedHours || 0;
           } else if (catalogEntry) {
-            hours = catalogEntry.totalHours || 
-                    catalogEntry["Total Hours"] || 
-                    catalogEntry["عدد الساعات"] || 
-                    0;
+            hours = catalogEntry.totalHours ||
+              catalogEntry["Total Hours"] ||
+              catalogEntry["عدد الساعات"] ||
+              0;
           }
           hours = Number(hours) || 0;
           //Ghaith's change end
-          
+
           trainingTimeline.push({ name: displayName, hours });
           trainingTotalHours += hours;
 
@@ -856,24 +890,23 @@ export function displayRecommendations(recommendations, containerEl, resultsSect
             <div class="recommendation-hours">
               <i class="far fa-clock"></i>
               <span>${language === "ar"
-                      ? "عدد الساعات:"
-                      : "Total hours:"}
+              ? "عدد الساعات:"
+              : "Total hours:"}
               </span>
               <strong>${hoursText}</strong>
-              ${
-                rec.rulesApplied && rec.rulesApplied.length > 0
-                  ? `<span class="recommendation-rule-inline">
+              ${rec.rulesApplied && rec.rulesApplied.length > 0
+              ? `<span class="recommendation-rule-inline">
                        <i class="fas fa-gavel"></i> ${language === "ar" ? "القواعد:" : "Rules:"} ${rec.rulesApplied.join(", ")}
                      </span>`
-                  : ""
-              }
+              : ""
+            }
             </div>
           `;
           trainingSubsection.appendChild(card);
         });
       } else {
         const noRecP = document.createElement("p");
-        noRecP.textContent = language === "ar" 
+        noRecP.textContent = language === "ar"
           ? "لا توجد توصيات للدورات التدريبية."
           : "No training course recommendations found.";
         trainingSubsection.appendChild(noRecP);
@@ -947,8 +980,8 @@ export function displayRecommendations(recommendations, containerEl, resultsSect
   } else {
     console.error("❌ Results section element not found!");
   }
-  
-  console.log("📊 displayRecommendations completed. Total candidates displayed:", 
+
+  console.log("📊 displayRecommendations completed. Total candidates displayed:",
     recommendations?.candidates?.length || 0);
 }
 

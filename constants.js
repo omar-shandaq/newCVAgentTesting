@@ -9,7 +9,7 @@ export const LAST_RECOMMENDATIONS_KEY = "skillMatchLastRecommendations";
 
 // Proxy URL
 export const GEMINI_PROXY_URL = 
-  "https://backendapivercel-git-main-omar-shandaqs-projects.vercel.app/api/chat";
+  "https://backend-vercel-repo-git-main-jouds-projects-8f56041e.vercel.app/api/gemini-proxy";
 
 import { loadCertificates, getCertificatesDatabase } from "./certificates-data.js";
 //Ghaith's change start
