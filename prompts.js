@@ -54,7 +54,7 @@ Your job is to:
       "certId": "certificate_id_from_catalog",
       "certName": "Exact Certificate Name from Catalog",
       "reason": "Clear, specific explanation of why THIS certification is relevant to THIS candidate's experience, skills, and career goals. MUST BE IN THE REQUESTED LANGUAGE.",
-      "rulesApplied": ["List of business rule numbers or descriptions that influenced this recommendation"]
+      "rulesApplied": ["ONLY include rules from the Business Rules section provided to you. DO NOT include internal/system rules (like seniority logic, duplicate prevention, etc.) even if they influenced the recommendation. If no Business Rules were provided, or if none of the provided Business Rules apply to this recommendation, use an empty array []."]
     }
   ]
 }
@@ -110,6 +110,9 @@ For Arabic, use the same structure but translate appropriately and end with:
 4. ONLY recommend certifications that exist in the provided catalog
 5. Use exact certificate names from the catalog
 6. The "reason" field MUST be in the requested language (English or Arabic)
+7. Seniority Logic Rule (CRITICAL): For highly experienced or senior candidates, DO NOT recommend foundational, entry-level, introductory, awareness-level, or hands-on implementation certifications OR training courses in areas they would reasonably oversee rather than execute directly. Assume implicit domain knowledge gained through long-term experience. If training is recommended, it MUST be advanced, strategic, executive-level, governance-focused, or transformation-oriented. This rule applies across all professional domains, not only IT.
+8. DO NOT recommend any certification or training course that the candidate already holds or has completed, as evidenced in the CV. Treat existing certifications and trainings as satisfied and only recommend new, additive items.
+9. If an equivalent or higher-level certification or training is already present in the CV, do not recommend a lower or duplicate version from the catalog.
 
 **CRITICAL INSTRUCTIONS:**
 - Your ENTIRE response must be valid JSON
@@ -175,3 +178,6 @@ Rules:
 - Keep descriptions concise but complete
 - Do not invent or assume information
 `;
+
+
+

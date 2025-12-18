@@ -31,6 +31,10 @@ import {
   saveSubmittedCvs, // Imported
   loadSubmittedCvs, // Imported
   // 12-15-2025 joud end
+  //18-12-2025 jous start
+  saveLanguagePreference,
+  loadLanguagePreference,
+  //18-12-2025 jous end
 } from "./storage-catalog.js";
 
 import {
@@ -58,7 +62,8 @@ let submittedCvData = [];
 let allRecommendationsMap = {};
 let lastRecommendations = { candidates: [] }; 
 let userRules = [];
-
+let abortController = null; // Controls the generation cancellation
+let isGenerating = false;   // Tracks generation state
 // --- TRANSLATION DICTIONARY ---
 // Starting Taif's updates
 const UI_TEXT = {
@@ -67,7 +72,7 @@ const UI_TEXT = {
     appTitle: "SkillMatch Pro",
     tagline: "AI-powered training and certification recommendations",
     chatTitle: "Chat Assistant",
-    chatPlaceholder: "Ask about training programs, upload CVs, or set rules...",
+    chatPlaceholder: "Ask about training programs, certificates, or uploaded CVs...",
     uploadTitle: "Upload CVs",
     dragDrop: "Drag & drop CV files here or click to browse",
     rulesTitle: "Business Rules",
@@ -81,16 +86,21 @@ const UI_TEXT = {
     recommendationsTitle: "Recommendations",
     // 12-15-2025 Joud start
     // Save Toggle
-    saveSession: "Save Session",
+    saveSession: "Keep My Data",
     // 12-15-2025 joud end
     downloadBtn: "Download Recommendations (PDF)",
-    welcomeMessage: `Hello! I'm your training and certification assistant. I can help you:
-      <ul>
-        <li>Discuss training programs and certificates</li>
-        <li>Analyze CVs for suitable recommendations</li>
-        <li>Adjust recommendations based on your business rules</li>
-      </ul>
-      How can I help you today?`,
+        stopBtn: "Stop Recommendation Generation",
+    generationStopped: "Recommendation generation was stopped by the user",
+    welcomeMessage: `As-salamu alaykum! I'm your Training and Certification Assistant.
+I'm here to help you identify the best learning paths for your team. Follow these steps to get started:
+
+      <ol>
+        <li><b>Upload CVs</b>: Begin by uploading the resumes of your candidates.</li>
+        <li><b>Add Business Rules (Optional)</b>: Define specific criteria or requirements to tailor the analysis.</li>
+        <li>click on <b>Generate Recommendations</b> button to see the results.</li>
+      </ol>
+      If you need assistance, I'm pleased to help!`,
+
     toggleBtnText: "العربية",
     enterRule: "Enter a business rule...",
     
@@ -131,12 +141,14 @@ const UI_TEXT = {
     appTitle: "SkillMatch Pro",
     tagline: "توصيات التدريب والشهادات المدعومة بالذكاء الاصطناعي",
     chatTitle: "المساعد الذكي",
-    chatPlaceholder: "اسأل عن البرامج، ارفع السير الذاتية...",
+    chatPlaceholder: "اسأل عن البرامج أو الشّهادات أو السير الذاتيّة المرفوعة...",
     uploadTitle: "رفع السير الذاتية",
     dragDrop: "اسحب وأفلت الملفات هنا أو انقر للتصفح",
     rulesTitle: "قواعد العمل",
     optional: "اختياري",
     addRule: "إضافة قاعدة",
+        stopBtn: "إيقاف إصدار التوصيات",
+    generationStopped: "تم إيقاف إصدار التوصيات بواسطة المستخدم",
     generateBtn: "إصدار التوصيات",
     uploadedCvs: "السير الذاتية المرفوعة",
     reviewTitle: "مراجعة التحليل",
@@ -144,18 +156,19 @@ const UI_TEXT = {
     submit: "إرسال",
     recommendationsTitle: "التوصيات",
     downloadBtn: "تحميل التوصيات (PDF)",
-    welcomeMessage: `مرحباً! أنا مساعد التدريب والشهادات الخاص بك. يمكنني مساعدتك في:
+    welcomeMessage: `السّلام عليكم! أنا مساعدك الخاص بالتدريب والشهادات.
+أنا هنا لمساعدتك في تحديد أفضل مسارات التعلم لفريقك. اتبع الخطوات التالية للبدء:
       <ul>
-        <li>مناقشة البرامج التدريبية والشهادات</li>
-        <li>تحليل السيرة الذاتية للحصول على توصيات مناسبة</li>
-        <li>تعديل التوصيات بناءً على قواعد عملك</li>
-      </ul>
-      كيف يمكنني مساعدتك اليوم؟`,
+  <li><b>رفع السير الذاتية</b>: ابدأ برفع السير الذاتية الخاصة بالمرشحين.</li>
+  <li><b>إضافة قواعد العمل (اختياري)</b>: حدد معايير أو متطلبات خاصة لتخصيص عملية التحليل.</li>
+  <li>اضغط على <b>إصدار التوصيات</b> لعرض النتائج.</li>
+</ul>
+      إذا كنت بحاجة إلى مساعدة، أنا في خدمتك!`,
     toggleBtnText: "English",
     enterRule: "أدخل قاعدة عمل...",
     // 12-15-2025 Joud start
     // Save Toggle
-    saveSession: "حفظ الجلسة",
+    saveSession: "حفظ بياناتي",
     // 12-15-2025 Joud end
     // Timeline Text
     estTime: "الوقت التقديري لإكمال الشهادة:",
@@ -281,18 +294,26 @@ function updateLanguage(lang) {
   const prevDefaults = prevLang === 'en' ? DEFAULT_RULES_EN : DEFAULT_RULES_AR;
   const newDefaults = lang === 'en' ? DEFAULT_RULES_EN : DEFAULT_RULES_AR;
 
-  const isUsingDefaults = JSON.stringify(currentRulesFromUI) === JSON.stringify(prevDefaults);
-
-  if (isUsingDefaults) {
-    userRules = [...newDefaults];
-    initializeRulesUI(userRules);
-    saveUserRules(userRules);
-  } else {
-    const ruleInputs = document.querySelectorAll('.rule-input');
-    ruleInputs.forEach(input => {
-      input.placeholder = UI_TEXT[lang].enterRule;
+  // Create a map of "Previous Default Rule" -> "New Default Rule"
+  const defaultMap = new Map();
+  if (prevDefaults && newDefaults) {
+    prevDefaults.forEach((rule, index) => {
+      // Map by index assuming the arrays are parallel (Rule 1 EN matches Rule 1 AR)
+      if (newDefaults[index]) {
+        defaultMap.set(rule, newDefaults[index]);
+      }
     });
   }
+
+  // Iterate through current rules: if it's a default, translate it; otherwise keep it
+  const updatedRules = currentRulesFromUI.map(rule => {
+    return defaultMap.has(rule) ? defaultMap.get(rule) : rule;
+  });
+
+  // Save and Re-render
+  userRules = updatedRules;
+  initializeRulesUI(userRules);
+  saveUserRules(userRules);
 
   if (submittedCvData.length > 0) {
     renderSubmittedCvBubbles(submittedCvData);
@@ -301,13 +322,23 @@ function updateLanguage(lang) {
   const recommendationsContainer = document.getElementById("recommendations-container");
   const resultsSection = document.getElementById("results-section");
 
-  if (
+  // Check if there are selected CVs - if so, regenerate recommendations in the new language
+  const selectedCvs = submittedCvData.filter(cv => cv.selected);
+  const generateBtn = document.getElementById("generate-recommendations-btn");
+  
+  if (selectedCvs.length > 0 && generateBtn && !generateBtn.disabled) {
+    // Automatically trigger recommendation generation in the new language
+    generateBtn.click();
+  } else if (
     recommendationsContainer &&
     lastRecommendations &&
     lastRecommendations.candidates &&
     lastRecommendations.candidates.length > 0
   ) {
+    // If no selected CVs but we have existing recommendations, translate them
     recommendationsContainer.innerHTML = `<div class="loader"></div>`;
+    // Hide download button while recommendations are being re-generated / translated
+    updateDownloadButtonVisibility(lastRecommendations);
 
     (async () => {
       try {
@@ -319,23 +350,55 @@ function updateLanguage(lang) {
 
         recommendationsContainer.innerHTML = "";
         displayRecommendations(translatedRecommendations, recommendationsContainer, resultsSection, lang);
+        updateDownloadButtonVisibility(lastRecommendations);
       } catch (err) {
         recommendationsContainer.innerHTML = "";
         displayRecommendations(lastRecommendations, recommendationsContainer, resultsSection, lang);
+        updateDownloadButtonVisibility(lastRecommendations);
       }
     })();
   }
+  //18-12-2025 joud start
+  saveLanguagePreference(lang);
+  //18-12-2025 joud end
 }
 // 14-12-2025 Ending Taif's updates
 
 function initializeLanguage() {
   const toggleBtn = document.getElementById('language-toggle');
-  updateLanguage('en');
-
+  // --- 18-12-2025 joud start ---
+  // Old line was: updateLanguage('en');
+  // New logic: Load saved language, or default to 'en'
+  const savedLang = loadLanguagePreference();
+  updateLanguage(savedLang);
+  // --- 18-12-2025 joud end ---
   if (toggleBtn) {
     toggleBtn.addEventListener('click', () => {
       const newLang = currentLang === 'en' ? 'ar' : 'en';
       updateLanguage(newLang);
+
+      // If there are **no** existing recommendations yet but we already have CVs,
+      // auto-trigger generation once in the new language.
+      try {
+        const hasExistingRecs =
+          lastRecommendations &&
+          Array.isArray(lastRecommendations.candidates) &&
+          lastRecommendations.candidates.length > 0;
+
+        if (hasExistingRecs) return; // updateLanguage will re-render/translate them
+
+        const generateBtn = document.getElementById('generate-recommendations-btn');
+        if (!generateBtn || generateBtn.disabled) return;
+
+        const hasSubmitted =
+          Array.isArray(submittedCvData) && submittedCvData.length > 0;
+
+        if (hasSubmitted) {
+          generateBtn.click();
+        }
+      } catch (e) {
+        console.error('Error auto-triggering recommendations on language change', e);
+      }
     });
   }
 }
@@ -780,9 +843,20 @@ function updateDownloadButtonVisibility(recommendations) {
 
   if (!recommendations || !recommendations.candidates || recommendations.candidates.length === 0) {
     downloadBtn.classList.add("hidden");
-  } else {
-    downloadBtn.classList.remove("hidden");
+    return;
   }
+
+  // Only show the download button when all recommendations are fully rendered
+  // (i.e., no loading spinners/placeholders remain in the results container).
+  const recommendationsContainer = document.getElementById("recommendations-container");
+  const stillLoading = recommendationsContainer && recommendationsContainer.querySelector(".loader");
+
+  if (stillLoading) {
+    downloadBtn.classList.add("hidden");
+    return;
+  }
+
+  downloadBtn.classList.remove("hidden");
 }
 // Starting Taif's updates
 function downloadRecommendationsAsPDF(recommendations, language = 'en') {
@@ -798,6 +872,15 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
     return;
   }
 
+  // Helper function to prepare reason text for PDF (prevents overlapping in Arabic with consecutive English words)
+  function prepareReasonForPdf(reason, isArabic) {
+    if (!isArabic) return reason;
+    
+    // Insert zero-width space after English words/numbers to help PDF renderer break lines correctly
+    // This prevents overlapping when multiple English words appear consecutively in Arabic text
+    return reason.replace(/([A-Za-z0-9)(]+)(\s+)/g, '$1\u200B$2');
+  }
+
   // --- PDF GENERATION LOGIC ---
   const catalog = getFinalCertificateCatalog();
   //Ghaith's change start
@@ -808,9 +891,12 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
   // 1. Create a container for the PDF content
   const pdfContainer = document.createElement('div');
   pdfContainer.className = 'pdf-content';
-  //Ghaith's change start - remove top spacing so header is at very top of page
+  //Ghaith's change start - add padding to prevent cutoff
   pdfContainer.style.marginTop = '0';
-  pdfContainer.style.paddingTop = '0';
+  pdfContainer.style.paddingTop = '10px';
+  pdfContainer.style.paddingBottom = '10px';
+  pdfContainer.style.paddingLeft = '5px';
+  pdfContainer.style.paddingRight = '5px';
   //Ghaith's change end
   if (isArabic) {
     pdfContainer.style.direction = 'rtl';
@@ -827,10 +913,10 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
   //Ghaith's change start - ensure recommendations appear directly under header on same page, header at very top
   header.style.pageBreakAfter = 'avoid';
   header.style.breakAfter = 'avoid';
-  header.style.marginTop = '0';
-  header.style.marginBottom = '0';
-  header.style.paddingTop = '0';
-  header.style.paddingBottom = '0';
+  header.style.marginTop = '5px';
+  header.style.marginBottom = '10px';
+  header.style.paddingTop = '5px';
+  header.style.paddingBottom = '5px';
   //Ghaith's change end
   const now = new Date().toLocaleDateString(isArabic ? 'ar-SA' : 'en-US');
   
@@ -888,13 +974,18 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
     .pdf-subsection h3 { font-size: 13.5px; margin: 6px 0 4px 0; }
     .pdf-recommendation-card { font-size: 12px; padding: 6px 8px !important; }
     .pdf-recommendation-title { font-size: 13px; }
-    .pdf-recommendation-reason { font-size: 12px; }
+    .pdf-recommendation-reason { font-size: 12px; overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
     .pdf-recommendation-hours, .pdf-recommendation-rule { font-size: 11.5px; }
     .timeline-wrapper { margin-top: 4px; }
     .timeline-title { font-size: 12px; margin-bottom: 3px; }
     .stacked-bar .segment-hours { font-size: 10.5px; }
     .stacked-labels .segment-label { font-size: 10.5px; }
     .total-label { font-size: 11.5px; }
+    /* Arabic RTL support for PDF recommendation-reason (mirror UI behavior) */
+    .pdf-content[style*="direction: rtl"] .recommendation-reason {
+      direction: rtl;
+      text-align: right;
+    }
     /*Ghaith's change end */
   `;
   pdfContainer.appendChild(pdfStyle);
@@ -931,20 +1022,44 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
     nameHeader.style.marginTop = '4px';
     nameHeader.style.marginBottom = '6px';
     // 16-12-2025 Ghaith's Change End
-    nameHeader.textContent = `${UI_TEXT[language].pdfCandidate}: ${displayCandidateName}`;
+    let candidateLine;
+    if (isArabic) {
+      // Show as "English :المرشح"
+      candidateLine = `${displayCandidateName} :${UI_TEXT[language].pdfCandidate}`;
+    } else {
+      candidateLine = `${UI_TEXT[language].pdfCandidate}: ${displayCandidateName}`;
+    }
+    nameHeader.textContent = candidateLine;
+    // Bidi-safe and wrapped
+    nameHeader.dir = 'auto';
+    nameHeader.style.unicodeBidi = 'plaintext';
+    nameHeader.style.overflowWrap = 'anywhere';
+    nameHeader.style.wordBreak = 'break-word';
     candidateSection.appendChild(nameHeader);
 
     if (candidate.cvName && candidate.cvName !== displayCandidateName) {
       const fileDiv = document.createElement('div');
       fileDiv.className = 'pdf-candidate-cv-name';
       //Ghaith's change start - darken file name text, reduce spacing for first candidate
-      fileDiv.style.color = '#1B8354';
+      fileDiv.style.color = '#000000';
       fileDiv.style.fontWeight = '600';
       if (index === 0) {
         fileDiv.style.marginBottom = '4px';
       }
       //Ghaith's change end
-      fileDiv.textContent = `${UI_TEXT[language].pdfFile}: ${candidate.cvName}`;
+      let fileLine;
+      if (isArabic) {
+        // Show as "cv_sample1.pdf :الملف"
+        fileLine = `${candidate.cvName} :${UI_TEXT[language].pdfFile}`;
+      } else {
+        fileLine = `${UI_TEXT[language].pdfFile}: ${candidate.cvName}`;
+      }
+      fileDiv.textContent = fileLine;
+      // Bidi-safe and wrapped
+      fileDiv.dir = 'auto';
+      fileDiv.style.unicodeBidi = 'plaintext';
+      fileDiv.style.overflowWrap = 'anywhere';
+      fileDiv.style.wordBreak = 'break-word';
       candidateSection.appendChild(fileDiv);
     }
 
@@ -957,8 +1072,13 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
       introDiv.style.padding = '0';
       introDiv.style.fontSize = '11px';
       introDiv.style.lineHeight = '1.6';
-      introDiv.style.color = '#1B8354';
+      introDiv.style.color = '#000000';
       introDiv.textContent = candidate.recommendationIntro;
+      // Bidi-safe intro line
+      introDiv.dir = 'auto';
+      introDiv.style.unicodeBidi = 'plaintext';
+      introDiv.style.overflowWrap = 'anywhere';
+      introDiv.style.wordBreak = 'break-word';
       candidateSection.appendChild(introDiv);
     }
 
@@ -967,7 +1087,7 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
       certSubsection.className = 'pdf-subsection';
       //Ghaith's change start - certificates section should start on page 1 for first candidate
       const certMarginTop = index === 0 ? '12px' : '20px';
-      certSubsection.innerHTML = `<h3 style="color:#1B8354; margin-top:${certMarginTop};">${language === 'ar' ? 'الشهادات' : 'Certificates'}</h3>`;
+      certSubsection.innerHTML = `<h3 style="color:#000000; margin-top:${certMarginTop};">${language === 'ar' ? 'الشهادات' : 'Certificates'}</h3>`;
       //Ghaith's change start - avoid page breaks in certificates subsection, ensure first one starts on page 1
       certSubsection.style.pageBreakInside = 'avoid';
       certSubsection.style.breakInside = 'avoid';
@@ -1021,15 +1141,21 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
         //Ghaith's change end
 
         //Ghaith's change start - match exact UI format with icons and inline rules
+        // Match UI structure exactly: just icon + text, explicitly set RTL for Arabic PDF
+        const reasonStyle = isArabic 
+          ? "margin:8px 0; color:#000000; line-height:1.6; overflow-wrap:anywhere; word-break:break-word; white-space:normal; direction:rtl; text-align:right;"
+          : "margin:8px 0; color:#000000; line-height:1.6; overflow-wrap:anywhere; word-break:break-word; white-space:normal;";
+        // Preprocess reason text for PDF to prevent overlapping when multiple English words appear consecutively
+        const pdfReason = prepareReasonForPdf(rec.reason, isArabic);
         card.innerHTML = `
-          <div class="recommendation-title" style="font-weight:600; font-size:1rem; margin:0 0 8px 0; color:#1B8354;">${displayName}</div>
-          <div class="recommendation-reason" style="margin:8px 0; color:#1B8354; line-height:1.6;">
-            <i class="fas fa-lightbulb"></i> ${rec.reason}
+          <div class="recommendation-title" style="font-weight:600; font-size:1rem; margin:0 0 8px 0; color:#000000;">${displayName}</div>
+          <div class="recommendation-reason" style="${reasonStyle}">
+            <i class="fas fa-lightbulb"></i> ${pdfReason}
           </div>
           <div class="recommendation-hours" style="margin-top:4px; font-size:0.9rem; color:#7E9196; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
             <i class="far fa-clock" style="color:#074D31;"></i>
             <span>${UI_TEXT[language].estTime}</span>
-            <strong style="color:#1B8354; font-weight:600;">${hoursText}</strong>
+            <strong style="color:#323836; font-weight:600;">${hoursText}</strong>
             ${rec.rulesApplied && rec.rulesApplied.length > 0
               ? `<span class="recommendation-rule-inline" style="margin-top:0; font-size:0.85rem; color:#7E9196; font-style:italic;"><i class="fas fa-gavel"></i> ${UI_TEXT[language].rulesApplied} ${rec.rulesApplied.join(", ")}</span>`
               : ""
@@ -1088,7 +1214,7 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
               const percentage = safeHours > 0 ? (safeHours / certTotalHours) * 100 : 0;
               if (percentage < 5) return "";
               return `
-                  <div class="segment-label" style="width:${percentage}%">
+                  <div class="segment-label" style="width:${percentage}%;">
                     ${item.name}
                   </div>
                 `;
@@ -1115,7 +1241,7 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
       const trainingSubsection = document.createElement('div');
       trainingSubsection.className = 'pdf-subsection';
       // 16-12-2025 Ghaith's Change Start - training directly after certificates (minimal gap, allow header to move up)
-      trainingSubsection.innerHTML = `<h3 style="color:#023B42; margin-top:6px;">${language === 'ar' ? 'الدورات التدريبية' : 'Training Courses'}</h3>`;
+      trainingSubsection.innerHTML = `<h3 style="color:#000000; margin-top:6px;">${language === 'ar' ? 'الدورات التدريبية' : 'Training Courses'}</h3>`;
       // Allow page breaks inside the subsection so the header can appear on the previous page
       // while each card/timeline object still avoids splitting.
       // trainingSubsection.style.pageBreakInside = 'avoid';
@@ -1178,15 +1304,21 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
         //Ghaith's change end
 
         //Ghaith's change start - match exact UI format with icons and inline rules
+        // Match UI structure exactly: just icon + text, explicitly set RTL for Arabic PDF
+        const trainingReasonStyle = isArabic 
+          ? "margin:8px 0; color:#323836; line-height:1.6; overflow-wrap:anywhere; word-break:break-word; white-space:normal; direction:rtl; text-align:right;"
+          : "margin:8px 0; color:#323836; line-height:1.6; overflow-wrap:anywhere; word-break:break-word; white-space:normal;";
+        // Preprocess reason text for PDF to prevent overlapping when multiple English words appear consecutively
+        const trainingPdfReason = prepareReasonForPdf(rec.reason, isArabic);
         card.innerHTML = `
-          <div class="recommendation-title" style="font-weight:600; font-size:1rem; margin:0 0 8px 0; color:#1B8354;">${displayName}</div>
-          <div class="recommendation-reason" style="margin:8px 0; color:#1B8354; line-height:1.6;">
-            <i class="fas fa-lightbulb"></i> ${rec.reason}
+          <div class="recommendation-title" style="font-weight:600; font-size:1rem; margin:0 0 8px 0; color:#323836;">${displayName}</div>
+          <div class="recommendation-reason" style="${trainingReasonStyle}">
+            <i class="fas fa-lightbulb"></i> ${trainingPdfReason}
           </div>
           <div class="recommendation-hours" style="margin-top:4px; font-size:0.9rem; color:#7E9196; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
             <i class="far fa-clock" style="color:#074D31;"></i>
             <span>${UI_TEXT[language].estTime}</span>
-            <strong style="color:#1B8354; font-weight:600;">${hoursText}</strong>
+            <strong style="color:#323836; font-weight:600;">${hoursText}</strong>
             ${rec.rulesApplied && rec.rulesApplied.length > 0
               ? `<span class="recommendation-rule-inline" style="margin-top:0; font-size:0.85rem; color:#7E9196; font-style:italic;"><i class="fas fa-gavel"></i> ${UI_TEXT[language].rulesApplied} ${rec.rulesApplied.join(", ")}</span>`
               : ""
@@ -1244,7 +1376,7 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
               const percentage = safeHours > 0 ? (safeHours / trainingTotalHours) * 100 : 0;
               if (percentage < 5) return "";
               return `
-                  <div class="segment-label" style="width:${percentage}%">
+                  <div class="segment-label" style="width:${percentage}%;">
                     ${item.name}
                   </div>
                 `;
@@ -1275,11 +1407,12 @@ function downloadRecommendationsAsPDF(recommendations, language = 'en') {
   // 5. Trigger PDF Download
   //Ghaith's change start - add white space at top of each page
   const opt = {
-    margin: [10, 10, 10, 10], // top, left, bottom, right - top margin for white space on each page
+    margin: [20, 10, 20, 10], // top, left, bottom, right - increased top/bottom to prevent cutoff
     filename: `SkillMatch_Recommendations_${new Date().toISOString().slice(0,10)}.pdf`,
     image: { type: 'jpeg', quality: 0.98 },
     html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css', 'legacy'] }
   };
   //Ghaith's change end
 
@@ -1668,6 +1801,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   // 2. Initialize Language FIRST (prevents re-triggering loader on existing data)
   initializeLanguage();
+  // --- FIX START joud 16-12-2025: Move clearChatHistoryDom() HERE ---
+  // Reset chat to welcome message first. If persistence loads history below, it will overwrite this.
+  clearChatHistoryDom(); 
+  // --- FIX END ---
+  await loadCertificateCatalog();
+  //Ghaith's change start
+  await loadTrainingCoursesCatalog();
+  //Ghaith's change end
   // 12-15-2025 Joud start
   // 3. Persistence Logic
   if (!isPersistenceEnabled()) {
@@ -1679,13 +1820,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     chatHistory = loadChatHistory();
     lastRecommendations = loadLastRecommendations() || { candidates: [] };
 
-    // Restore chat
-    if (chatHistory.length > 0) {
-        const chatContainer = document.getElementById("chat-messages");
-        if (chatContainer) {
-            chatContainer.innerHTML = ""; 
-            chatHistory.forEach(msg => addMessage(msg.text, msg.isUser));
-        }
+    // Restore chat (always keep the static welcome/instruction message at the top)
+    const chatContainer = document.getElementById("chat-messages");
+    if (chatContainer) {
+      // Reset to welcome message first
+      chatContainer.innerHTML = `<div class="message bot-message">${getUiText('welcomeMessage')}</div>`;
+
+      // Then re-append persisted messages (if any) below it
+      if (chatHistory.length > 0) {
+        chatHistory.forEach(msg => addMessage(msg.text, msg.isUser));
+      }
     }
 
     // Restore recommendations (Displays instantly without loader)
@@ -1706,12 +1850,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
   // 12-15-2025 joud end
-  await loadCertificateCatalog();
-  //Ghaith's change start
-  await loadTrainingCoursesCatalog();
-  //Ghaith's change end
-
-    // 12-15-2025 Joud start
+  // 12-15-2025 Joud start
   // 5. NEW: Load Persisted CVs
   const savedCvs = loadSubmittedCvs();
   if (savedCvs && savedCvs.length > 0) {
@@ -1738,7 +1877,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   userRules = [...defaultRulesForLang];
   saveUserRules(userRules);
 
-  clearChatHistoryDom();
+  
   // 12-15-2025 Joud start
   // Setup Persistence Toggle
   const persistenceToggle = document.getElementById("persistence-toggle");
@@ -1774,6 +1913,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Add user message to the chat UI
     addMessage(message, true);
+
+    // 17-12-2025 Autoscroll only for user messages (keep bot behavior unchanged)
+    const chatMessages = document.getElementById("chat-messages");
+    if (chatMessages) {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
     chatHistory.push({ text: message, isUser: true });
     // --- FIX START joud 16-12-2025: Save immediately after user sends message ---
     saveChatHistory(chatHistory);
@@ -1781,6 +1927,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     userInput.value = "";
     sendButton.disabled = true;
     const typingEl = showTypingIndicator();
+
+    // 17-12-2025 Ensure typing indicator ("loading...") stays in view
+    if (typingEl) {
+      const chatMessagesForTyping = document.getElementById("chat-messages");
+      if (chatMessagesForTyping) {
+        chatMessagesForTyping.scrollTop = chatMessagesForTyping.scrollHeight;
+      }
+    }
 
     try {
       const cvArrayForChat =
@@ -1847,8 +2001,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (!hasContent && accumulatedText.trim()) {
               hasContent = true;
               botMessageDiv.style.display = "";
-              hideTypingIndicator();
-              
+                //18-12-2025 liyan's updates
+                hideTypingIndicator();
+                //18-12-2025 end liyan's updates
               // Render the first chunk content so we can measure it
               if (typeof marked !== "undefined") {
                 botMessageDiv.innerHTML = marked.parse(accumulatedText);
@@ -1951,88 +2106,186 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (e.key === "Enter") handleSendMessage();
     });
   }
-
-  if (generateBtn) {
-    generateBtn.addEventListener("click", async () => {
-      function setButtonLoading(btn, loading) {
-          if(loading) { btn.disabled = true; btn.innerHTML = '<div class="loader"></div>'; }
-          else { btn.disabled = false; btn.innerHTML = getUiText('generateBtn'); }
+ if (generateBtn) {
+  generateBtn.addEventListener("click", async () => {
+    
+    function setButtonLoading(btn, loading) {
+      if (loading) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="loader"></div>';
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = getUiText('generateBtn');
       }
+    }
 
-      setButtonLoading(generateBtn, true);
-      recommendationsContainer.innerHTML = "";
-      resultsSection.classList.remove("hidden");
-      // NOTE: no automatic scrolling here; user controls page scroll
+    // Show stop button, hide it when done
+    const stopBtn = document.getElementById("stop-generation-btn");
+    if (stopBtn) {
+      stopBtn.classList.remove("hidden");
+    }
 
-      //Ghaith's change start - remove empty business rule inputs before generating
-      const rulesContainer = document.getElementById("rules-container");
-      if (rulesContainer) {
-        const ruleInputs = rulesContainer.querySelectorAll(".rule-input");
-        ruleInputs.forEach(input => {
-          if (!input.value.trim()) {
-            const wrapper = input.closest(".rule-input-wrapper");
-            if (wrapper) wrapper.remove();
-          }
-        });
-      }
-      //Ghaith's change end
+    // Create new abort controller
+    abortController = new AbortController();
+    isGenerating = true;
 
-      const rules = getRulesFromUI();
-      // const cvArray = submittedCvData; replaced this line with the below line 
-      const cvArray = submittedCvData.filter(cv => cv.selected); 
-      
-      allRecommendationsMap = {}; 
-      lastRecommendations = { candidates: [] };
-      saveLastRecommendations(lastRecommendations);
-      // added below function for CV Selection //Start
-      if (cvArray.length === 0) {
-        setButtonLoading(generateBtn, false);
-        alert(currentLang === 'ar'
-          ? "يرجى اختيار سيرة ذاتية واحدة على الأقل"
-          : "Please select at least one CV");
-        return;
-      }
-      // End
-      let completedCount = 0;
+    setButtonLoading(generateBtn, true);
+    recommendationsContainer.innerHTML = "";
+    resultsSection.classList.remove("hidden");
+
+    // Remove empty business rule inputs
+    const rulesContainer = document.getElementById("rules-container");
+    if (rulesContainer) {
+      const ruleInputs = rulesContainer.querySelectorAll(".rule-input");
+      ruleInputs.forEach(input => {
+        if (!input.value.trim()) {
+          const wrapper = input.closest(".rule-input-wrapper");
+          if (wrapper) wrapper.remove();
+        }
+      });
+    }
+
+    const rules = getRulesFromUI();
+    const cvArray = submittedCvData.filter(cv => cv.selected);
+
+    allRecommendationsMap = {};
+    lastRecommendations = { candidates: [] };
+    saveLastRecommendations(lastRecommendations);
+    updateDownloadButtonVisibility(lastRecommendations);
+
+    if (cvArray.length === 0) {
+      setButtonLoading(generateBtn, false);
+      if (stopBtn) stopBtn.classList.add("hidden");
+      isGenerating = false;
+      alert(currentLang === 'ar'
+        ? "يرجى اختيار سيرة ذاتية واحدة على الأقل"
+        : "Please select at least one CV");
+      return;
+    }
+
+    let completedCount = 0;
+    let stoppedByUser = false;
+
+    try {
       for (const cv of cvArray) {
+        // Check if generation was stopped
+        if (abortController.signal.aborted) {
+          stoppedByUser = true;
+          break;
+        }
+
         const placeholder = document.createElement("div");
         placeholder.className = "candidate-result";
         placeholder.innerHTML = `<h3 class="candidate-name">${cv.name}</h3><div class="loader" style="margin: 10px 0;"></div> ${getStatusText('generating')}`;
         recommendationsContainer.appendChild(placeholder);
 
         try {
-      const result = await analyzeSingleCvWithAI(cv, rules, currentLang);
-      const resultCard = createCandidateCard(result, currentLang);
-      recommendationsContainer.replaceChild(resultCard, placeholder);
-      
-      allRecommendationsMap[cv.name] = {
-         candidateName: result.candidateName || cv.name,
-         cvName: cv.name,
-         // Taif's update start - store intro text for each CV
-         recommendationIntro: result.recommendationIntro || "",
-         //Ghaith's change start - store both certificates and training courses for PDF/UI
-         recommendations: result.recommendations || [],
-         trainingCourses: result.trainingCourses || []
-         //Ghaith's change end
-      };
+          // Pass abort signal to analyzeSingleCvWithAI
+          const result = await analyzeSingleCvWithAI(
+            cv, 
+            rules, 
+            currentLang, 
+            3, // maxRetries
+            abortController.signal // Pass the abort signal
+          );
+
+          // Check again after async operation
+          if (abortController.signal.aborted) {
+            placeholder.remove();
+            stoppedByUser = true;
+            break;
+          }
+
+          const resultCard = createCandidateCard(result, currentLang);
+          recommendationsContainer.replaceChild(resultCard, placeholder);
+
+          allRecommendationsMap[cv.name] = {
+            candidateName: result.candidateName || cv.name,
+            cvName: cv.name,
+            recommendationIntro: result.recommendationIntro || "",
+            recommendations: result.recommendations || [],
+            trainingCourses: result.trainingCourses || []
+          };
 
           lastRecommendations = { candidates: Object.values(allRecommendationsMap) };
           saveLastRecommendations(lastRecommendations);
         } catch (err) {
+          // Check if error is due to abort
+          if (err.name === 'AbortError') {
+            placeholder.remove();
+            stoppedByUser = true;
+            break;
+          }
           console.error(err);
           placeholder.innerHTML = `<p style="color:red">Error analyzing ${cv.name}</p>`;
         }
         completedCount++;
       }
 
-      setButtonLoading(generateBtn, false);
-      //Ghaith's change start - remove popup/status in business rules after generating recs
-      if (rulesStatus) rulesStatus.innerHTML = "";
-      //Ghaith's change end
-      updateDownloadButtonVisibility(lastRecommendations);
-    });
-  }
+      // Show message if stopped by user
+      // if (stoppedByUser) {
+      //   const stoppedMessage = document.createElement("div");
+      //   stoppedMessage.className = "status-message status-error";
+      //   stoppedMessage.style.margin = "20px 0";
+      //   stoppedMessage.innerHTML = `<i class="fas fa-stop-circle"></i> ${getUiText('generationStopped')}`;
+      //   recommendationsContainer.insertBefore(stoppedMessage, recommendationsContainer.firstChild);
+      // }
 
+    } catch (err) {
+      console.error("Generation error:", err);
+    } finally {
+      // Always clean up when done (completed or stopped)
+      setButtonLoading(generateBtn, false);
+      isGenerating = false;
+      if (stopBtn) stopBtn.classList.add("hidden");
+      abortController = null;
+
+      if (rulesStatus) rulesStatus.innerHTML = "";
+      updateDownloadButtonVisibility(lastRecommendations);
+    }
+  });
+ }
+
+// ============================================================
+// 18-12-2025 Starting Taif's updates - Stop Generation Button
+// ============================================================
+
+const stopGenerationBtn = document.getElementById("stop-generation-btn");
+if (stopGenerationBtn) {
+  stopGenerationBtn.addEventListener("click", () => {
+    if (abortController && isGenerating) {
+      // Abort all ongoing requests
+      abortController.abort();
+      
+      // Hide stop button immediately
+      stopGenerationBtn.classList.add("hidden");
+      
+      // Re-enable generate button
+      const generateBtn = document.getElementById("generate-recommendations-btn");
+      if (generateBtn) {
+        generateBtn.disabled = false;
+        generateBtn.innerHTML = getUiText('generateBtn');
+      }
+      
+      // Show "Generation stopped" message
+      const recommendationsContainer = document.getElementById("recommendations-container");
+      if (recommendationsContainer) {
+        const stoppedMessage = document.createElement("div");
+        stoppedMessage.className = "status-message status-error";
+        stoppedMessage.style.margin = "20px 0";
+        stoppedMessage.innerHTML = `<i class="fas fa-stop-circle"></i> ${getUiText('generationStopped')}`;
+        recommendationsContainer.insertBefore(stoppedMessage, recommendationsContainer.firstChild);
+      }
+      
+      isGenerating = false;
+      console.log("✋ Generation stopped by user");
+    }
+  });
+}
+
+// ============================================================
+// 18-12-2025 Ending Taif's updates - Stop Generation Button
+// ============================================================
   // File Upload
   if (cvUploadArea) {
     cvUploadArea.addEventListener("click", () => fileInput && fileInput.click());
@@ -2257,5 +2510,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 });
+
+
+
+
+
+
 
 

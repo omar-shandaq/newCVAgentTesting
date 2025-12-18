@@ -11,7 +11,7 @@
   --card-bg: #FFFFFF;           /* client --color-primary-bg / neutral-0 */
 
   /* Text & muted text */
-  --text: #1B8354;
+  --text: #000000;  /*#133727; (Liyan +2 point for finding the missing semi-colon ;)*/
   --muted: #7E9196;             /* client --color-gray-600 */
 
   /* Status colors */
@@ -90,7 +90,7 @@ img,video{ max-width:100%; height:auto; display:block; }
 .card { background: var(--card-bg); border-radius: var(--radius-md); box-shadow: var(--card-shadow); padding: var(--space-m); }
 
 /* MAIN LAYOUT - mobile-first */
-.main-content { display:flex; flex-direction: column; gap: var(--space-l); margin-top: var(--space-xxs); }
+.main-content { display:flex; flex-direction: column; gap: var(--space-l); margin-top: 2px; }
 
 /* === CHAT SECTION === */
 .chat-section { 
@@ -110,7 +110,7 @@ img,video{ max-width:100%; height:auto; display:block; }
   margin-bottom: var(--space-s);
   flex-shrink: 0;
  }
-.section-header h2 { margin:0; font-size:1.05rem; display:flex; align-items:center; gap:10px; }
+.section-header h2 { margin:0; font-size:1.05rem; display:flex; align-items:center; gap:10px; color: #0e3a28;}
 
 /* chat messages area */
 .chat-messages {
@@ -125,15 +125,16 @@ img,video{ max-width:100%; height:auto; display:block; }
   background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
   min-height: 0;
   margin-bottom: var(--space-s);
+  color: #0e3a28;
  }
 
 /* message bubbles */
 .message { padding: 10px 14px; border-radius: 16px; max-width: 85%; word-break: break-word; box-shadow: 0 1px 0 rgba(0,0,0,0.02); }
 .user-message { margin-left: auto; background: var(--primary); color: white; border-bottom-right-radius: 6px; }
-.bot-message { margin-right: auto; background: #f1f2f4; color: var(--text); border-bottom-left-radius: 6px; }
+.bot-message { margin-right: auto; background: #f1f2f4; color: #000000; border-bottom-left-radius: 6px; }
 
 /* markdown & lists inside bot */
-.bot-message ul { margin: 8px 0 4px 18px; padding-left: 0; color: var(--muted); }
+.bot-message ul { margin: 8px 0 4px 18px; padding-left: 0; color: #000000; }
 .bot-message li { margin: 6px 0; }
 
 /* input row - at bottom */
@@ -184,7 +185,7 @@ button:disabled { opacity:0.6; cursor:not-allowed; transform:none; }
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--text);
+  color: #0e3a28;
  }
 
 /* Rules label with optional tag */
@@ -337,7 +338,7 @@ button:disabled { opacity:0.6; cursor:not-allowed; transform:none; }
   gap: var(--space-xs);
   font-size: 1rem;
   font-weight: 600;
-  color: var(--text);
+  color: #0e3a28;
   margin: 0 0 var(--space-xs) 0;
   padding: 0;
  }
@@ -525,22 +526,7 @@ html[lang="ar"] .cv-modal .cv-close-btn {
   transform: translateY(-1px);
  }
 
-/* Generate Recommendations button */
-#generate-recommendations-btn:disabled {
-  background: #D1D5DB;
-  color: #9CA3AF;
-  opacity: 1;
-  cursor: not-allowed;
- }
 
-#generate-recommendations-btn:not(:disabled) {
-  background: var(--primary);
- }
-
-#generate-recommendations-btn:not(:disabled):hover {
-  background: var(--primary-600);
-  transform: translateY(-1px);
- }
 
 /* Download Recommendations button */
 .download-btn {
@@ -575,7 +561,7 @@ html[lang="ar"] .cv-modal .cv-close-btn {
 .pdf-content {
   padding: 40px;
   font-family: 'Roboto', sans-serif;
-  color: #023B42;
+  color: var(--text);
  }
 
 .pdf-header {
@@ -623,14 +609,14 @@ background: linear-gradient(90deg,var(#074D31), var(#074D31));
  }
 
 .pdf-candidate-cv-name {
-  color: #7E9196;
+  color: var(--text);
   font-size: 0.9rem;
   margin: 0 0 8px 0;
   font-weight: 400;
  }
 
 .pdf-candidate-name {
-  color: #15878A;
+  color: var(--text);
   font-size: 1.05rem;
   margin: 0 0 12px 0;
   font-weight: 600;
@@ -648,12 +634,12 @@ background: linear-gradient(90deg,var(#074D31), var(#074D31));
   font-weight: 600;
   font-size: 1rem;
   margin: 0 0 8px 0;
-  color: #023B42;
+  color: var(--text);
  }
 
 .pdf-recommendation-reason {
   margin: 8px 0;
-  color: #023B42;
+  color: var(--text);
   line-height: 1.6;
  }
 
@@ -701,7 +687,32 @@ background: linear-gradient(90deg,var(#074D31), var(#074D31));
  }
 
 /* === RESULTS === */
-.results-section { margin-top: var(--space-l); padding: var(--space-m); border-radius: var(--radius-md); box-shadow: var(--card-shadow); background: var(--card-bg); }
+.results-section {
+  margin-top: var(--space-l);
+  padding: var(--space-m);
+  border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
+  background: var(--card-bg);
+}
+
+/* Recommendations header (star + title) */
+.results-section > h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--space-m) 0;
+}
+
+/* In Arabic, right-align header and show star on the right */
+html[lang="ar"] .results-section {
+  text-align: right;
+}
+
+html[lang="ar"] .results-section > h2 {
+  direction: rtl;
+  justify-content: flex-start;
+}
+
 .candidate-result { padding: var(--space-s) 0; }
 .candidate-cv-name { color: var(--text); font-size: 0.9rem; margin: 0 0 var(--space-xs) 0; font-weight: 400; }
 .candidate-name { color: var(--primary); font-size: 1.05rem; margin: 0 0 var(--space-xs) 0; }
@@ -736,7 +747,7 @@ background: linear-gradient(90deg,var(#074D31), var(#074D31));
  }
 
 .recommendation-hours i {
-  color: var(--primary);
+  color: #000403;
  }
 
 .recommendation-hours strong {
@@ -1343,7 +1354,7 @@ html, body {
 
 /* Fix for Maximize Button Color */
 .uploaded-cvs-section h3 .fa-folder-open {
-  color: var(--primary) !important;
+  color: #0e3a28 !important;
  }
 
 button#maximize-uploaded-btn i {
@@ -1687,6 +1698,20 @@ html[lang="ar"] .recommendation-intro {
   font-size: 0.90rem;
   line-height: 1.35;
  }
+
+/* Arabic layout for recommendations section (UI) */
+html[lang="ar"] #recommendations-container,
+html[lang="ar"] #recommendations-container .candidate-result,
+html[lang="ar"] #recommendations-container .recommendation-card,
+html[lang="ar"] #recommendations-container .recommendation-intro,
+html[lang="ar"] #recommendations-container .recommendation-title,
+html[lang="ar"] #recommendations-container .recommendation-reason,
+html[lang="ar"] #recommendations-container .recommendation-hours,
+html[lang="ar"] #recommendations-container .recommendation-rule {
+  direction: rtl;
+  text-align: right;
+}
+
 #recommendations-container .candidate-result {
   gap: 6px;
  }
@@ -1705,7 +1730,13 @@ html[lang="ar"] .recommendation-intro {
 #recommendations-container .recommendation-card {
   padding: 8px 10px;
   font-size: 0.90rem;
- }
+}
+
+/* Move orange accent border to the right in Arabic mode */
+html[lang="ar"] #recommendations-container .recommendation-card {
+  border-right: 4px solid var(--secondary);
+  border-left: none;
+}
 
 #recommendations-container .recommendation-title {
   font-size: 0.95rem;
@@ -1780,7 +1811,7 @@ input[type="checkbox"]:checked + .toggle-slider::before {
 
 .toggle-text {
   font-size: 0.85rem;
-  color: var(--text);
+  color: white;
 }
 /* 12-15-2025 Joud end */
 /* 15-12-2025 Starting Taif's updates  */
@@ -1842,3 +1873,93 @@ html[lang="ar"] .footer-text {
 }
 
 /* 15-12-2025 Ending Taif's updates  */
+
+.stop-generation-btn {
+  width: 100%;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  font-size: 0.95rem;
+  font-weight: 500;
+
+  background: #dc3545;
+  color: white;
+  border: 2px dashed #dc3545;
+
+  transition: all 0.2s ease;
+}
+
+.stop-generation-btn:hover {
+  background: #c82333;
+  border-color: #c82333;
+  transform: translateY(-1px);
+}
+
+.stop-generation-btn:active {
+  transform: translateY(0);
+}
+
+.stop-generation-btn.hidden {
+  display: none;
+}
+
+.stop-generation-btn i {
+  font-size: 16px;
+}
+
+.recommendations-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+#generate-recommendations-btn {
+  background: white;
+  color: white;
+  border: 2px solid var(--primary);
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+  margin-bottom: var(--space-s);
+  width: 100%;
+}
+
+#generate-recommendations-btn:hover {
+  background: rgba(21,135,138,0.05);
+  border-color: var(--primary-600);
+  transform: translateY(-1px);
+ }
+
+/* Generate Recommendations button */
+#generate-recommendations-btn:disabled {
+  background: #D1D5DB;
+  color: #9CA3AF;
+  opacity: 1;
+  cursor: not-allowed;
+ }
+
+#generate-recommendations-btn:not(:disabled) {
+  background: var(--primary);
+ }
+
+#generate-recommendations-btn:not(:disabled):hover {
+  background: var(--primary-600);
+  transform: translateY(-1px);
+ }
+
+

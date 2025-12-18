@@ -44,7 +44,7 @@
         <label class="toggle-switch-label">
           <input type="checkbox" id="persistence-toggle" />
           <span class="toggle-slider"></span>
-          <span class="toggle-text" data-i18n="saveSession">Save Session</span>
+          <span class="toggle-text" data-i18n="saveSession">keep My Data</span>
         </label>
         <!-- 12-15-2025 start joud  end -->
         <button id="language-toggle" class="lang-btn">
@@ -103,9 +103,17 @@
             <i class="fas fa-plus"></i> <span data-i18n="addRule">Add Rule</span>
           </button>
           
-          <button id="generate-recommendations-btn" class="primary action-full" disabled>
-            <i class="fas fa-star"></i> <span data-i18n="generateBtn">Generate Recommendations</span>
-          </button>
+<div class="recommendations-actions">
+  <button id="generate-recommendations-btn" data-i18n="generateBtn">
+    Generate Recommendations
+  </button>
+
+  <button id="stop-generation-btn" class="stop-generation-btn hidden">
+    <i class="fas fa-stop-circle"></i>
+    <span data-i18n="stopBtn">Stop</span>
+  </button>
+</div>
+
         </section>
 
         <section class="panel-section card uploaded-cvs-section">
@@ -205,3 +213,4 @@
 <!-- Ending Taif's updates  -->
 </body>
 </html>
+

@@ -44,12 +44,19 @@ const RETRY_CONFIG = {
 // ---------------------------------------------------------------------------
 // Proxy + Gemini call - INTEGRATED: Your proxy function
 // ---------------------------------------------------------------------------
-export async function callGeminiProxy(payload) {
-  const response = await fetch(GEMINI_PROXY_URL, {
+export async function callGeminiProxy(payload, signal = null) {
+  const fetchOptions = {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-  });
+  };
+  
+  // Add signal if provided
+  if (signal) {
+    fetchOptions.signal = signal;
+  }
+  
+  const response = await fetch(GEMINI_PROXY_URL, fetchOptions);
 
   if (!response.ok) {
     const error = await response.text();
@@ -120,7 +127,7 @@ export async function callGeminiProxyStream(
 // 16-12-2025 Ghaith's Change End
 
 
-export async function callGeminiAPI(userPrompt, history = [], systemPrompt = "") {
+export async function callGeminiAPI(userPrompt, history = [], systemPrompt = "", signal = null) {
   const formattedHistory = history.map((msg) => ({
     role: msg.isUser ? "user" : "model",
     parts: [{ text: msg.text }],
@@ -136,8 +143,11 @@ export async function callGeminiAPI(userPrompt, history = [], systemPrompt = "")
   ];
 
   const proxyPayload = { prompt: combinedPrompt, history: contents };
-  return await callGeminiProxy(proxyPayload);
+  
+  // Pass signal to the proxy function
+  return await callGeminiProxy(proxyPayload, signal);
 }
+
 
 // ---------------------------------------------------------------------------
 // Chat UI helpers (markdown + typing indicator)
@@ -167,8 +177,11 @@ export function showTypingIndicator() {
   const typingDiv = document.createElement("div");
   typingDiv.className = "message bot-message typing-indicator";
   typingDiv.id = "typing-indicator";
+  // Dots-only typing indicator (no text label)
   typingDiv.innerHTML =
-    '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+    '<span class="typing-dot"></span>' +
+    '<span class="typing-dot"></span>' +
+    '<span class="typing-dot"></span>';
 
   // Add the typing indicator without changing scroll position.
   chatMessages.appendChild(typingDiv);
@@ -187,15 +200,22 @@ export function hideTypingIndicator() {
 // ---------------------------------------------------------------------------
 export function buildChatSystemPrompt(uploadedCvs) {
   const catalogString = getCatalogAsPromptString();
-  //Ghaith's change start
   const trainingCatalogString = getTrainingCoursesCatalogAsPromptString();
-  //Ghaith's change end
   const hasCvContext = uploadedCvs.length > 0;
   
-  // Safe handling if structured data is not yet parsed (isParsing=true)
-  const cvContext = hasCvContext
-    ? `\n\n**Available CV Context:**\nThe user has uploaded ${uploadedCvs.length} CV(s). You can reference their experience, skills, and background when making recommendations.`
-    : `\n\n**Note:** The user has not uploaded a CV yet. You can still answer general questions about certifications, but for personalized recommendations, encourage them to upload their CV.`;
+  // --- 18-12-2025 joud start ---
+  let cvContext = "";
+  if (hasCvContext) {
+    // Combine all CV texts into one clear block
+    const cvsContent = uploadedCvs.map((cv, index) => 
+      `[CV ${index + 1}: ${cv.name}]\n${cv.text}\n-------------------`
+    ).join("\n");
+
+    cvContext = `\n\n**Available CV Context:**\nThe user has uploaded ${uploadedCvs.length} CV(s). Here is their full content:\n\n${cvsContent}\n\nYou can reference this experience, skills, and background when answering questions.`;
+  } else {
+    cvContext = `\n\n**Note:** The user has not uploaded a CV yet. You can still answer general questions about certifications, but for personalized recommendations, encourage them to upload their CV.`;
+  }
+  // ------- 18-12-2025 joud end -------
 
   return `${CHAT_SYSTEM_PROMPT_BASE.trim()}
 
@@ -413,7 +433,7 @@ For each CV, provide recommendations in a structured JSON format. The JSON must 
           "certId": "pmp",
           "certName": "Project Management Professional (PMP)",
           "reason": "Clear explanation of why this certification is relevant.",
-          "rulesApplied": ["List of rules that influenced this recommendation"]
+          "rulesApplied": []
         }
       ],
 //Ghaith's change start
@@ -422,7 +442,7 @@ For each CV, provide recommendations in a structured JSON format. The JSON must 
           "courseId": "training_1_...",
           "courseName": "Fundamentals of Entrepreneurship",
           "reason": "Clear explanation of why this training course is relevant.",
-          "rulesApplied": ["List of rules that influenced this recommendation"]
+          "rulesApplied": []
         }
       ]
 //Ghaith's change end
@@ -441,6 +461,7 @@ For each CV, provide recommendations in a structured JSON format. The JSON must 
 //Ghaith's change start
 - If no training courses can be recommended, provide an empty array [] for their "trainingCourses" field.
 //Ghaith's change end
+- rulesApplied field: ONLY include rules from the Business Rules section provided above. DO NOT include internal/system rules (like seniority logic, duplicate prevention, etc.). If no Business Rules apply to a recommendation, use empty array [].
 
 **Example of correct response format:**
 {"candidates":[{"candidateName":"John Doe","recommendations":[],"trainingCourses":[]}]}
@@ -449,12 +470,65 @@ Begin your response now with the JSON object only:
 `;
 }
 
+// --- NEW HELPER FUNCTION FOR OPTION 1: HYBRID APPROACH ---
+function generateCvPromptFromStructuredData(cv) {
+  // FAST PATH: If parsing isn't done or failed, fall back to raw text immediately.
+  // This ensures the first "Generate" click is instant.
+  if (!cv.structured && !cv.experience && !cv.skills && !cv.certifications) {
+    return cv.text || "";
+  }
+
+  // STRUCTURED PATH: If we have structured data (from parsing or user edits), use it.
+  // This ensures manual edits (like adding a certificate) are seen by the AI.
+  let output = `Candidate Name: ${cv.name}\n`;
+
+  // 1. Experience
+  if (cv.experience && cv.experience.length > 0) {
+    output += "\nEXPERIENCE (Verified):\n";
+    cv.experience.forEach(exp => {
+      output += `- ${exp.jobTitle} at ${exp.company} (${exp.period || exp.years || "N/A"})\n`;
+      if (exp.description) output += `  Description: ${exp.description}\n`;
+    });
+  }
+
+  // 2. Education
+  if (cv.education && cv.education.length > 0) {
+    output += "\nEDUCATION (Verified):\n";
+    cv.education.forEach(edu => {
+      output += `- ${edu.degreeField} at ${edu.school}\n`;
+    });
+  }
+
+  // 3. Certifications
+  if (cv.certifications && cv.certifications.length > 0) {
+    output += "\nEXISTING CERTIFICATIONS (Verified - Do Not Recommend These):\n";
+    cv.certifications.forEach(cert => {
+      const title = cert.title || cert.certName || "Unknown Certificate";
+      output += `- ${title}\n`;
+    });
+  }
+
+  // 4. Skills
+  if (cv.skills && cv.skills.length > 0) {
+    output += "\nSKILLS (Verified):\n";
+    cv.skills.forEach(skill => {
+      const skillName = typeof skill === 'string' ? skill : (skill.title || skill.name);
+      if (skillName) output += `- ${skillName}\n`;
+    });
+  }
+
+  // 5. Append raw text as fallback context, but explicitly prioritize verified data above
+  output += `\n\n[RAW CV CONTEXT FOLLOWS FOR REFERENCE]\n${cv.text}\n`;
+
+  return output;
+}
+
 // START OF EDIT BY JOUD
 /**
  * NEW: Analyzes a single CV and returns recommendations for just that person.
  * Includes robust JSON extraction to handle AI chatter.
  */
-export async function analyzeSingleCvWithAI(cv, rulesArray, language = 'en', maxRetries = 3) {
+export async function analyzeSingleCvWithAI(cv, rulesArray, language = 'en', maxRetries = 3, signal = null) {
   const catalogString = getCatalogAsPromptString();
   //Ghaith's change start
   const trainingCatalogString = getTrainingCoursesCatalogAsPromptString();
@@ -470,6 +544,12 @@ export async function analyzeSingleCvWithAI(cv, rulesArray, language = 'en', max
     language === 'ar'
       ? "مقدمة موجزة تنتهي بـ: بناءً على ذلك، نوصي بالشهادات التالية: (50 كلمة كحد أقصى)"
       : "Brief intro ending with: Based on this, we recommend the following certificates: (MAXIMUM 50 WORDS)";
+
+  // --- CHANGED FOR OPTION 1 ---
+  // Generate the CV text dynamically. If user edited the CV, this function
+  // returns the verified data strings. If not, it returns raw text.
+  const dynamicCvText = generateCvPromptFromStructuredData(cv);
+  // -----------------------------
 
   const prompt = `
 ${ANALYSIS_SYSTEM_PROMPT.trim()}
@@ -489,7 +569,7 @@ ${rulesArray && rulesArray.length > 0 ? rulesArray.map((r) => `- ${r}`).join("\n
 
 **CV to Analyze:**
 --- CV Name: ${cv.name} ---
-${cv.text}
+${dynamicCvText}
 
 **Task:**
 Provide recommendations for this specific candidate in strict JSON format.
@@ -503,7 +583,7 @@ Provide recommendations for this specific candidate in strict JSON format.
       "certId": "pmp",
       "certName": "Project Management Professional (PMP)",
       "reason": "${language === 'ar' ? 'السبب باللغة العربية' : 'Reason in English'}",
-      "rulesApplied": ["Rule 1"]
+      "rulesApplied": []
     }
   ],
   //Ghaith's change start
@@ -512,7 +592,7 @@ Provide recommendations for this specific candidate in strict JSON format.
       "courseId": "training_1_...",
       "courseName": "Fundamentals of Entrepreneurship",
       "reason": "Clear explanation of why this training course matches.",
-      "rulesApplied": ["Rule 1"]
+      "rulesApplied": []
     }
   ]
   //Ghaith's change end
@@ -525,6 +605,7 @@ Provide recommendations for this specific candidate in strict JSON format.
 - recommendationIntro should ONLY describe candidate background (seniority, years, expertise)
 - Do NOT mention WHY certifications are recommended in the intro
 - reason field MUST be in ${language === 'ar' ? 'Arabic' : 'English'}
+- rulesApplied field: ONLY include rules from the Business Rules section provided above. DO NOT include internal/system rules (like seniority logic, duplicate prevention, etc.). If no Business Rules apply to this recommendation, use empty array [].
 - Respond with a SINGLE OBJECT, NOT wrapped in "candidates" array
 - Response must be valid JSON only
 - No markdown formatting
@@ -536,7 +617,7 @@ Provide recommendations for this specific candidate in strict JSON format.
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const rawResponse = await callGeminiAPI(prompt, [], "");
+const rawResponse = await callGeminiAPI(prompt, [], "", signal);
 
       // --- ROBUST JSON EXTRACTION LOGIC (Joud's code) ---
       let cleaned = rawResponse.trim();
@@ -1120,3 +1201,6 @@ Return the translated JSON object starting with { and ending with }:`;
 
 // Re-export utility used in UI for CV summary
 export { calculateTotalExperience };
+
+
+

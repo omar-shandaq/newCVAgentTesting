@@ -6,6 +6,9 @@ export const TRAINING_CATALOG_KEY = "skillMatchTrainingCatalog";
 //Ghaith's change end
 export const USER_RULES_KEY = "skillMatchUserRules";
 export const LAST_RECOMMENDATIONS_KEY = "skillMatchLastRecommendations";
+//18-12-2025 joud start
+export const LANGUAGE_KEY = "skillMatchCurrentLanguage";
+//18-12-2025 joud end
 
 // 16-12-2025 Ghaith's Change Start - split non-stream and stream endpoints
 export const GEMINI_PROXY_URL =
@@ -74,3 +77,4 @@ export function getDefaultRules(lang = 'en') {
 
 // Keep this for backward compatibility
 export const DEFAULT_RULES = DEFAULT_RULES_EN;
+
